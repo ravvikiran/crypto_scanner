@@ -6,7 +6,7 @@ An AI-driven crypto market scanner that continuously analyzes the **top 500 cryp
 
 ### 🔍 Multi-Strategy Scanning
 
-- **Trend Continuation (Momentum)** - EMA alignment with pullback entries
+- **Trend Continuation (Long)** - EMA alignment with pullback entries
 - **Bearish Trend Short** - Short setups in downtrends
 - **Liquidity Sweep Reversal** - Detects fake breakouts
 - **Volatility Breakout** - Captures explosive moves from compression
@@ -24,19 +24,20 @@ An AI-driven crypto market scanner that continuously analyzes the **top 500 cryp
 
 - Filters signals based on Bitcoin's trend
 - Avoids trading against the market leader
+- LONG signals when BTC is Bullish
+- SHORT signals when BTC is Bearish
+
+### 🎯 Quality Filters
+
+- Minimum 3:1 Risk/Reward ratio
+- Excludes stablecoins (USDT, USDC, DAI, etc.)
+- Price range filter ($1 - $10,000)
 
 ### 🔔 Alert System
 
 - Telegram Bot notifications
 - Discord Webhooks
 - Email alerts
-- TradingView alert syntax
-
-### 📈 Performance Tracking
-
-- SQLite database for signal history
-- Win rate and P&L tracking
-- CSV export capability
 
 ## Quick Start
 
@@ -53,86 +54,59 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Edit `.env` and add your API keys:
+Edit `.env` and add your Telegram credentials:
 
 ```env
-# API Keys
-COINGECKO_API_KEY=your_key_here
-
-# Alert Settings
-TELEGRAM_BOT_TOKEN=your_bot_token
-TELEGRAM_CHAT_ID=your_chat_id
-DISCORD_WEBHOOK_URL=your_webhook_url
+# Telegram Alerts (Required for notifications)
+TELEGRAM_BOT_TOKEN=your_bot_token_from_botfather
+TELEGRAM_CHAT_ID=your_numeric_chat_id
 ```
+
+**To get Telegram Chat ID:**
+1. Search for @BotFather on Telegram and create a bot
+2. Search for @userinfobot to get your numeric chat ID
 
 ### 3. Run Scanner
 
 ```bash
 # Single scan
-python main.py scan --display --alerts
+python main.py scan
 
-# Continuous scanning
+# Single scan with Telegram alerts
+python main.py scan --alerts
+
+# Continuous scanning (every 5 minutes)
 python main.py continuous
 
-# Continuous scanning with alerts
+# Continuous scanning with Telegram alerts
 python main.py continuous --alerts
 
 # View statistics
 python main.py stats
 
-# Test alerts
+# Test alert configuration
 python main.py test
-```
-
-## Project Structure
-
-```
-crypto_scanner/
-├── config/           # Configuration management
-├── models/           # Data models and enums
-├── collectors/      # Market data collection (CoinGecko, Binance)
-├── indicators/     # Technical indicators (EMA, RSI, ATR, Bollinger)
-├── strategies/      # Trading strategy engines
-├── scorer/          # AI signal scoring
-├── filters/        # Bitcoin market filter
-├── alerts/         # Alert notifications
-├── dashboard/      # Display dashboard
-├── storage/        # Performance tracking
-├── scanner.py      # Main orchestrator
-├── main.py         # CLI interface
-└── requirements.txt
 ```
 
 ## Configuration
 
 ### Scanner Settings
 
-| Setting                   | Default | Description           |
+| Setting | Default | Description |
 | ------------------------- | ------- | --------------------- |
-| `SCAN_INTERVAL_MINUTES`   | 5       | Scan frequency        |
-| `MAX_COINS_TO_SCAN`       | 500     | Max coins to analyze  |
-| `MIN_MARKET_CAP_MILLIONS` | $50M    | Min market cap filter |
-| `MIN_VOLUME_24H_MILLIONS` | $5M     | Min 24h volume        |
-| `MIN_SIGNAL_SCORE`        | 7.0     | Min confidence score  |
+| `SCAN_INTERVAL_MINUTES` | 5 | Scan frequency (minutes) |
+| `MAX_COINS_TO_SCAN` | 500 | Max coins to analyze |
+| `MIN_MARKET_CAP_MILLIONS` | $10M | Min market cap filter |
+| `MIN_VOLUME_24H_MILLIONS` | $1M | Min 24h volume |
+| `MIN_SIGNAL_SCORE` | 7.0 | Min confidence score |
+| `TIMEFRAMES` | 4h,daily | Timeframes to scan |
 
-### Strategy Parameters
-
-| Indicator     | Period | Description           |
-| ------------- | ------ | --------------------- |
-| EMA Short     | 20     | Fast moving average   |
-| EMA Medium    | 50     | Medium moving average |
-| EMA Long      | 100    | Slow moving average   |
-| EMA Very Long | 200    | Trend confirmation    |
-| RSI           | 14     | Momentum oscillator   |
-| ATR           | 14     | Volatility measure    |
-| Bollinger     | 20     | Range compression     |
+Edit these in `.env` file.
 
 ## Supported Timeframes
 
-- Daily (`daily`)
 - 4 Hours (`4h`)
-- 1 Hour (`1h`)
-- 15 Minutes (`15m`)
+- Daily (`daily`)
 
 ## Strategy Details
 
@@ -145,9 +119,9 @@ crypto_scanner/
 - RSI between 55-70
 - Pullback to EMA20/EMA50
 
-**Entry:** Break above previous candle high  
-**Stop:** Below EMA50  
-**Target:** 2R risk reward
+**Entry:** Slightly above current price  
+**Stop:** Below entry (2%)  
+**Target:** 3R-4R risk reward
 
 ### 2. Bearish Trend Short
 
@@ -156,9 +130,9 @@ crypto_scanner/
 - Price < EMA20 < EMA50 < EMA100 < EMA200
 - Bounce to EMA20/EMA50
 
-**Entry:** Break below previous candle low  
-**Stop:** Above EMA50  
-**Target:** 2R-3R
+**Entry:** Slightly below current price  
+**Stop:** Above entry (2%)  
+**Target:** 3R-4R risk reward
 
 ### 3. Liquidity Sweep Reversal
 
@@ -182,30 +156,21 @@ crypto_scanner/
 **Stop:** Middle of range  
 **Target:** Measured move
 
-## API Rate Limits
+## Signal Output Example
 
-- **CoinGecko Free:** 10-30 calls/minute
-- **Binance:** 1200 calls/minute
-- Cache data locally to reduce API calls
+```
+BNB SHORT (4h)
+Strategy: Bearish Trend Short
+Entry: $671.62 - $673.64
+Stop Loss: $687.11
+Targets: T1=$631.20, T2=$617.72
+Risk/Reward: 1:3.0
+Confidence: 10.0/10
+```
 
 ## Database
 
 Signals and trades are stored in `data/performance.db` (SQLite).
-
-### Export Signals
-
-```bash
-python main.py stats --export signals.csv
-```
-
-## Future Enhancements
-
-- Machine learning signal scoring
-- Whale wallet tracking
-- Funding rate analysis
-- Order book imbalance
-- Sentiment analysis
-- Paper trading integration
 
 ## Disclaimer
 
