@@ -74,22 +74,32 @@ class TrendContinuationEngine:
         if not in_pullback:
             return None
         
+        # Skip stablecoins (not tradable for this strategy)
+        if current_price < 1 or current_price > 10000:
+            return None
+        
         # Check for breakout above previous candle
         prev_candle = candles[-2]
+        current_price = coin.current_price
         
-        # Entry: Break above previous high + small buffer
-        entry_min = prev_candle.high * 1.002
-        entry_max = prev_candle.high * 1.01
+        # For LONG: Entry above current price, Stop loss below entry, Targets above entry
+        # Entry: slightly above current price
+        entry_min = current_price * 1.001
+        entry_max = current_price * 1.005
         
-        # Stop: Below EMA50
-        stop_loss = ema_50 * 0.98
+        # Stop loss: 2% below entry
+        stop_loss = entry_min * 0.98
         
-        # Risk
+        # Risk = entry_min - stop_loss
         risk = entry_min - stop_loss
         
-        # Target: 2R
-        target_1 = entry_min + (risk * 2)
-        target_2 = entry_min + (risk * 3)
+        # Target: minimum 3R (above entry for LONG)
+        target_1 = entry_max + (risk * 3)
+        target_2 = entry_max + (risk * 4)
+        
+        # Calculate actual R ratio
+        reward = target_1 - entry_max
+        risk_reward = reward / risk if risk > 0 else 0
         
         # Create signal
         signal = TradingSignal(
@@ -103,7 +113,7 @@ class TrendContinuationEngine:
             stop_loss=stop_loss,
             target_1=target_1,
             target_2=target_2,
-            risk_reward=2.0,
+            risk_reward=risk_reward,
             risk_amount=risk,
             current_price=current_price,
             btc_trend=btc_trend,
@@ -163,20 +173,30 @@ class BearishTrendEngine:
         
         # Check for breakdown below previous candle
         prev_candle = candles[-2]
+        current_price = coin.current_price
         
-        # Entry: Break below previous low - small buffer
-        entry_min = prev_candle.low * 0.99
-        entry_max = prev_candle.low * 0.998
+        # Skip stablecoins (not tradable for this strategy)
+        if current_price < 1 or current_price > 10000:
+            return None
         
-        # Stop: Above EMA50
-        stop_loss = ema_50 * 1.02
+        # For SHORT: Entry below current price, Stop loss above entry, Targets below entry
+        # Entry: slightly below current price
+        entry_max = current_price * 0.998  # Upper bound (closer to current)
+        entry_min = current_price * 0.995  # Lower bound (further from current)
         
-        # Risk
+        # Stop loss: 2% above entry_max (for SHORT, stop is above entry)
+        stop_loss = entry_max * 1.02
+        
+        # Risk = stop_loss - entry_max
         risk = stop_loss - entry_max
         
-        # Target: 3R for better risk/reward
-        target_1 = entry_max - (risk * 3)
-        target_2 = entry_max - (risk * 4)
+        # Target: minimum 3R (below entry_min for SHORT)
+        target_1 = entry_min - (risk * 3)
+        target_2 = entry_min - (risk * 4)
+        
+        # Calculate actual R ratio
+        reward = entry_min - target_1
+        risk_reward = reward / risk if risk > 0 else 0
         
         # Create signal
         signal = TradingSignal(
@@ -190,7 +210,7 @@ class BearishTrendEngine:
             stop_loss=stop_loss,
             target_1=target_1,
             target_2=target_2,
-            risk_reward=3.0,
+            risk_reward=risk_reward,
             risk_amount=risk,
             current_price=current_price,
             btc_trend=btc_trend,

@@ -50,7 +50,7 @@ class ScannerConfig:
     min_market_cap_millions: float = float(os.getenv("MIN_MARKET_CAP_MILLIONS", "10"))
     min_volume_24h_millions: float = float(os.getenv("MIN_VOLUME_24H_MILLIONS", "1"))
     min_signal_score: float = float(os.getenv("MIN_SIGNAL_SCORE", "7.0"))
-    timeframes: List[str] = field(default_factory=lambda: os.getenv("TIMEFRAMES", "daily,4h,1h,15m").split(","))
+    timeframes: List[str] = field(default_factory=lambda: os.getenv("TIMEFRAMES", "4h,daily").split(","))
 
 
 @dataclass

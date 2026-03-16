@@ -38,9 +38,6 @@ class AlertManager:
         
         if self.alerts.smtp_username and self.alerts.email_to:
             self._send_email(signals)
-        
-        # Generate TradingView alerts
-        self._generate_tradingview_alerts(signals)
     
     def _format_signals_message(self, signals: List[TradingSignal]) -> str:
         """Format signals into alert message"""

@@ -74,6 +74,9 @@ python main.py scan --display --alerts
 # Continuous scanning
 python main.py continuous
 
+# Continuous scanning with alerts
+python main.py continuous --alerts
+
 # View statistics
 python main.py stats
 

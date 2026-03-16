@@ -88,6 +88,10 @@ class CryptoScanner:
             # Step 4: Calculate indicators and run strategies
             logger.info("Running strategy engines...")
             
+            # Filter out stablecoins
+            stablecoins = ["USDT", "USDC", "DAI", "BUSD", "USDS", "USD1", "USDG", "USDF", "TUSD", "USDD", "FRAX", "USDE"]
+            coins = [c for c in coins if c.symbol not in stablecoins]
+            
             for coin in coins:
                 # Calculate indicators for primary timeframe
                 primary_tf = self.config.scanner.timeframes[0] if self.config.scanner.timeframes else "1h"
@@ -118,7 +122,11 @@ class CryptoScanner:
             # Step 6: Filter by minimum score
             qualified_signals = self.scorer.filter_signals(all_signals)
             
-            # Step 7: Rank and deduplicate
+            # Step 7: Filter by minimum risk/reward (3R or higher)
+            min_r = 3.0
+            qualified_signals = [s for s in qualified_signals if s.risk_reward >= min_r]
+            
+            # Step 8: Rank and deduplicate
             final_signals = self._deduplicate_signals(qualified_signals)
             
             # Step 8: Keep only top 3 signals
