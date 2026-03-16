@@ -174,9 +174,9 @@ class BearishTrendEngine:
         # Risk
         risk = stop_loss - entry_max
         
-        # Target: 2R-3R
-        target_1 = entry_max - (risk * 2)
-        target_2 = entry_max - (risk * 3)
+        # Target: 3R for better risk/reward
+        target_1 = entry_max - (risk * 3)
+        target_2 = entry_max - (risk * 4)
         
         # Create signal
         signal = TradingSignal(
@@ -190,7 +190,7 @@ class BearishTrendEngine:
             stop_loss=stop_loss,
             target_1=target_1,
             target_2=target_2,
-            risk_reward=2.5,
+            risk_reward=3.0,
             risk_amount=risk,
             current_price=current_price,
             btc_trend=btc_trend,

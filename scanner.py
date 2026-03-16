@@ -121,6 +121,26 @@ class CryptoScanner:
             # Step 7: Rank and deduplicate
             final_signals = self._deduplicate_signals(qualified_signals)
             
+            # Step 8: Keep only top 3 signals
+            max_signals = 3
+            final_signals = final_signals[:max_signals]
+            
+            # Print signal details
+            if final_signals:
+                logger.info("="*50)
+                logger.info("TOP SIGNALS")
+                logger.info("="*50)
+                for i, sig in enumerate(final_signals, 1):
+                    logger.info(f"\n{i}. {sig.symbol} {sig.direction.value}")
+                    logger.info(f"   Strategy: {sig.strategy_type.value}")
+                    logger.info(f"   Timeframe: {sig.timeframe}")
+                    logger.info(f"   Entry: ${sig.entry_zone_min:.2f} - ${sig.entry_zone_max:.2f}")
+                    logger.info(f"   Stop Loss: ${sig.stop_loss:.2f}")
+                    logger.info(f"   Targets: T1=${sig.target_1:.2f}, T2=${sig.target_2:.2f}")
+                    logger.info(f"   Risk/Reward: 1:{sig.risk_reward:.1f}")
+                    logger.info(f"   Confidence: {sig.confidence_score:.1f}/10")
+                    logger.info(f"   Reason: {sig.reasoning}")
+            
             # Calculate scan duration
             scan_duration = time.time() - scan_start
             

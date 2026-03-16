@@ -74,9 +74,14 @@ class AlertManager:
     def _send_telegram(self, message: str):
         """Send message via Telegram bot"""
         try:
+            # Check if chat_id is a username (starts with @)
+            chat_id = self.alerts.telegram_chat_id
+            if chat_id and chat_id.startswith('@'):
+                logger.warning(f"Telegram: Using username '{chat_id}'. For better reliability, get numeric chat ID from @userinfobot bot")
+            
             url = f"https://api.telegram.org/bot{self.alerts.telegram_bot_token}/sendMessage"
             data = {
-                "chat_id": self.alerts.telegram_chat_id,
+                "chat_id": chat_id,
                 "text": message,
                 "parse_mode": "HTML"
             }
