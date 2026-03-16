@@ -1,0 +1,17 @@
+# Crypto Momentum & Reversal AI Scanner
+# Version: 1.0.0
+
+aiosignal>=1.3.1
+aiohttp>=3.9.1
+asyncio>=3.4.3
+pandas>=2.1.4
+numpy>=1.26.2
+python-dotenv>=1.0.0
+requests>=2.31.0
+ta-lib>=0.4.28
+telebot>=6.0.0
+discord-webhook>=1.0.0
+apscheduler>=3.10.4
+schedule>=1.2.0
+loguru>=0.7.2
+tabulate>=0.9.0

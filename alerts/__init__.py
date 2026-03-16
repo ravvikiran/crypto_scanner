@@ -1,0 +1,261 @@
+"""
+Alert System
+Sends notifications via Telegram, Discord, Email, and generates TradingView alerts.
+"""
+
+import smtplib
+import requests
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from typing import List, Optional
+from loguru import logger
+
+from models import TradingSignal, SignalDirection, StrategyType
+from config import get_config
+
+
+class AlertManager:
+    """Manages all alert notifications"""
+    
+    def __init__(self):
+        self.config = get_config()
+        self.alerts = self.config.alerts
+    
+    def send_all_alerts(self, signals: List[TradingSignal]):
+        """Send alerts through all configured channels"""
+        
+        if not signals:
+            return
+        
+        message = self._format_signals_message(signals)
+        
+        # Send to each channel
+        if self.alerts.telegram_bot_token and self.alerts.telegram_chat_id:
+            self._send_telegram(message)
+        
+        if self.alerts.discord_webhook_url:
+            self._send_discord(message, signals)
+        
+        if self.alerts.smtp_username and self.alerts.email_to:
+            self._send_email(signals)
+        
+        # Generate TradingView alerts
+        self._generate_tradingview_alerts(signals)
+    
+    def _format_signals_message(self, signals: List[TradingSignal]) -> str:
+        """Format signals into alert message"""
+        
+        emoji = "🚀"
+        
+        if len(signals) == 1:
+            signal = signals[0]
+            return signal.to_alert_string()
+        
+        # Multiple signals
+        message = f"""
+{emoji} MULTIPLE SETUPS DETECTED - {len(signals)} Signals
+
+"""
+        
+        for i, signal in enumerate(signals, 1):
+            direction_emoji = "🟢" if signal.direction.value == "LONG" else "🔴"
+            message += f"""
+{i}. {direction_emoji} {signal.symbol} - {signal.direction.value}
+   Strategy: {signal.strategy_type.value}
+   Entry: {signal.entry_zone_min:.2f}-{signal.entry_zone_max:.2f}
+   Stop: {signal.stop_loss:.2f}
+   Target: {signal.target_1:.2f}
+   Confidence: {signal.confidence_score:.1f}/10
+
+"""
+        
+        return message
+    
+    def _send_telegram(self, message: str):
+        """Send message via Telegram bot"""
+        try:
+            url = f"https://api.telegram.org/bot{self.alerts.telegram_bot_token}/sendMessage"
+            data = {
+                "chat_id": self.alerts.telegram_chat_id,
+                "text": message,
+                "parse_mode": "HTML"
+            }
+            
+            response = requests.post(url, json=data, timeout=10)
+            
+            if response.status_code == 200:
+                logger.info("Telegram alert sent successfully")
+            else:
+                logger.error(f"Telegram alert failed: {response.text}")
+                
+        except Exception as e:
+            logger.error(f"Error sending Telegram alert: {e}")
+    
+    def _send_discord(self, message: str, signals: List[TradingSignal]):
+        """Send message via Discord webhook"""
+        try:
+            # Determine embed color based on signal direction
+            if signals:
+                signal = signals[0]
+                color = 0x00FF00 if signal.direction.value == "LONG" else 0xFF0000
+            else:
+                color = 0xFFFF00
+            
+            # Create embeds
+            embeds = []
+            for signal in signals[:10]:  # Discord allows max 10 embeds
+                embed = {
+                    "title": f"{signal.direction.value} - {signal.symbol}",
+                    "description": signal.reasoning,
+                    "color": color,
+                    "fields": [
+                        {"name": "Entry Zone", "value": f"{signal.entry_zone_min:.2f} - {signal.entry_zone_max:.2f}", "inline": True},
+                        {"name": "Stop Loss", "value": f"{signal.stop_loss:.2f}", "inline": True},
+                        {"name": "Target 1", "value": f"{signal.target_1:.2f}", "inline": True},
+                        {"name": "Strategy", "value": signal.strategy_type.value, "inline": True},
+                        {"name": "Timeframe", "value": signal.timeframe, "inline": True},
+                        {"name": "Confidence", "value": f"{signal.confidence_score:.1f}/10", "inline": True}
+                    ],
+                    "footer": {"text": f"Risk/Reward: 1:{signal.risk_reward:.1f}"}
+                }
+                embeds.append(embed)
+            
+            # If only one signal, add main message as embed
+            if len(signals) == 1:
+                data = {"content": message, "embeds": embeds}
+            else:
+                data = {"content": f"🚨 **{len(signals)} Trading Signals Detected**", "embeds": embeds}
+            
+            response = requests.post(
+                self.alerts.discord_webhook_url,
+                json=data,
+                timeout=10
+            )
+            
+            if response.status_code in [200, 204]:
+                logger.info("Discord alert sent successfully")
+            else:
+                logger.error(f"Discord alert failed: {response.status_code}")
+                
+        except Exception as e:
+            logger.error(f"Error sending Discord alert: {e}")
+    
+    def _send_email(self, signals: List[TradingSignal]):
+        """Send email notification"""
+        try:
+            if not signals:
+                return
+            
+            # Create message
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = f"🔔 Crypto Scanner: {len(signals)} Trading Signals"
+            msg["From"] = self.alerts.email_from
+            msg["To"] = self.alerts.email_to
+            
+            # Create HTML content
+            html_content = self._create_html_email(signals)
+            
+            # Attach HTML
+            part = MIMEText(html_content, "html")
+            msg.attach(part)
+            
+            # Send email
+            with smtplib.SMTP(self.alerts.smtp_server, self.alerts.smtp_port) as server:
+                server.starttls()
+                server.login(self.alerts.smtp_username, self.alerts.smtp_password)
+                server.send_message(msg)
+            
+            logger.info("Email alert sent successfully")
+            
+        except Exception as e:
+            logger.error(f"Error sending email alert: {e}")
+    
+    def _create_html_email(self, signals: List[TradingSignal]) -> str:
+        """Create HTML email content"""
+        
+        rows = ""
+        for signal in signals:
+            direction_color = "green" if signal.direction.value == "LONG" else "red"
+            rows += f"""
+            <tr>
+                <td style="padding: 10px; border: 1px solid #ddd;"><strong>{signal.symbol}</strong></td>
+                <td style="padding: 10px; border: 1px solid #ddd; color: {direction_color};"><strong>{signal.direction.value}</strong></td>
+                <td style="padding: 10px; border: 1px solid #ddd;">{signal.entry_zone_min:.2f} - {signal.entry_zone_max:.2f}</td>
+                <td style="padding: 10px; border: 1px solid #ddd;">{signal.stop_loss:.2f}</td>
+                <td style="padding: 10px; border: 1px solid #ddd;">{signal.target_1:.2f}</td>
+                <td style="padding: 10px; border: 1px solid #ddd;">{signal.confidence_score:.1f}/10</td>
+            </tr>
+            """
+        
+        html = f"""
+        <html>
+        <head>
+            <style>
+                table {{ border-collapse: collapse; width: 100%; }}
+                th {{ background-color: #4CAF50; color: white; padding: 12px; }}
+                td {{ padding: 10px; border: 1px solid #ddd; text-align: center; }}
+            </style>
+        </head>
+        <body>
+            <h2>🚀 Crypto Scanner - Trading Signals</h2>
+            <p>{len(signals)} trading signals detected:</p>
+            <table>
+                <tr>
+                    <th>Coin</th>
+                    <th>Direction</th>
+                    <th>Entry Zone</th>
+                    <th>Stop Loss</th>
+                    <th>Target</th>
+                    <th>Confidence</th>
+                </tr>
+                {rows}
+            </table>
+        </body>
+        </html>
+        """
+        
+        return html
+    
+    def _generate_tradingview_alerts(self, signals: List[TradingSignal]):
+        """Generate TradingView alert syntax"""
+        try:
+            alerts = []
+            
+            for signal in signals:
+                # TradingView alert syntax
+                if signal.direction == "LONG":
+                    alert = f"{signal.symbol} LONG Entry:{signal.entry_zone_min} SL:{signal.stop_loss} TP:{signal.target_1}"
+                else:
+                    alert = f"{signal.symbol} SHORT Entry:{signal.entry_zone_max} SL:{signal.stop_loss} TP:{signal.target_1}"
+                
+                alerts.append(alert)
+            
+            # Log alerts (in production, these would be sent to TradingView API)
+            logger.info(f"TradingView Alerts: {alerts}")
+            
+        except Exception as e:
+            logger.error(f"Error generating TradingView alerts: {e}")
+    
+    def send_test_alert(self) -> bool:
+        """Send a test alert to verify configuration"""
+        try:
+            test_signal = TradingSignal(
+                symbol="BTC",
+                name="Bitcoin",
+                direction=SignalDirection.LONG,
+                strategy_type=StrategyType.TREND_CONTINUATION,
+                entry_zone_min=50000,
+                entry_zone_max=51000,
+                stop_loss=48000,
+                target_1=55000,
+                target_2=60000,
+                confidence_score=8.5,
+                reasoning="Test signal - configuration verified"
+            )
+            
+            self.send_all_alerts([test_signal])
+            return True
+            
+        except Exception as e:
+            logger.error(f"Test alert failed: {e}")
+            return False
