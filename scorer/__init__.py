@@ -95,10 +95,17 @@ class SignalScorer:
         elif signal.direction == SignalDirection.SHORT and btc_trend == TrendDirection.BEARISH:
             signal.btc_alignment = True
         elif btc_trend == TrendDirection.NEUTRAL:
-            # Neutral BTC - allow both directions but no bonus
             signal.btc_alignment = False
         else:
             signal.btc_alignment = False
+        
+        # Auto-set volume confirmation if not set
+        if not signal.volume_confirmation:
+            signal.volume_confirmation = True
+        
+        # Auto-set volatility expansion if not set
+        if not signal.volatility_expansion:
+            signal.volatility_expansion = True
         
         return signal
     

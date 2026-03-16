@@ -115,12 +115,6 @@ class CryptoScanner:
             # Step 5: Filter signals by BTC trend
             all_signals = self.btc_filter.filter_signals_by_btc(all_signals, btc_trend)
             
-            # DEBUG: Log signal breakdown before filtering
-            longs = sum(1 for s in all_signals if s.direction.value == "LONG")
-            shorts = sum(1 for s in all_signals if s.direction.value == "SHORT")
-            avg_score = sum(s.confidence_score for s in all_signals) / max(len(all_signals), 1)
-            logger.info(f"After BTC filter ({btc_trend.value}): {len(all_signals)} signals (LONG:{longs}, SHORT:{shorts}, avg_score:{avg_score:.1f})")
-            
             # Step 6: Filter by minimum score
             qualified_signals = self.scorer.filter_signals(all_signals)
             
