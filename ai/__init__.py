@@ -10,7 +10,10 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any
+from typing import TYPE_CHECKING, Dict, List, Optional, Any
+
+if TYPE_CHECKING:
+    from config import AIConfig
 from loguru import logger
 
 from config import get_config
@@ -207,6 +210,243 @@ class OllamaClient(AIClient):
             return f"Error: {str(e)}"
 
 
+# ==================== AI PROVIDER MANAGER (FALLBACK) ====================
+
+# Error patterns that indicate provider failure and should trigger fallback
+FALLBACK_ERROR_PATTERNS = [
+    "rate_limit",
+    "Rate limit",
+    "RATE_LIMIT",
+    "insufficient_quota",
+    "InsufficientQuota",
+    "429",
+    "429 Too Many Requests",
+    " quota ",
+    "exceeded",
+    "EXCEEDED",
+    "limit reached",
+    "LIMIT REACHED",
+    "monthly quota",
+    " MONTHLY QUOTA",
+]
+
+
+class AIProviderManager:
+    """
+    Manages multiple AI providers with automatic fallback.
+    
+    When the primary provider fails (rate limit, quota exceeded, errors),
+    the system automatically tries the next available provider in priority order.
+    """
+    
+    def __init__(self, config: "AIConfig"):
+        self.config = config
+        self._providers: Dict[str, AIClient] = {}
+        self._current_provider: Optional[AIClient] = None
+        self._current_provider_name: str = ""
+        self._failed_providers: Dict[str, float] = {}  # provider -> failure timestamp
+        self._failure_cooldown_seconds: float = 60.0  # Try failed provider again after 60 seconds
+        
+        # Initialize all available providers
+        self._initialize_providers()
+        
+        # Set initial provider based on priority
+        self._set_current_provider()
+    
+    def _initialize_providers(self):
+        """Initialize all configured AI providers"""
+        
+        # OpenAI
+        if self.config.openai_api_key:
+            self._providers["openai"] = OpenAIClient(
+                api_key=self.config.openai_api_key,
+                model=self.config.openai_model
+            )
+            logger.info("Registered OpenAI provider")
+        
+        # Anthropic
+        if self.config.anthropic_api_key:
+            self._providers["anthropic"] = AnthropicClient(
+                api_key=self.config.anthropic_api_key,
+                model=self.config.anthropic_model
+            )
+            logger.info("Registered Anthropic provider")
+        
+        # Groq
+        if self.config.groq_api_key:
+            self._providers["groq"] = GroqClient(
+                api_key=self.config.groq_api_key,
+                model=self.config.groq_model
+            )
+            logger.info("Registered Groq provider")
+        
+        # Ollama
+        if self.config.ollama_base_url:
+            self._providers["ollama"] = OllamaClient(
+                base_url=self.config.ollama_base_url,
+                model=self.config.ollama_model
+            )
+            logger.info("Registered Ollama provider")
+        
+        logger.info(f"AI Provider Manager initialized with {len(self._providers)} providers")
+    
+    def _get_priority_providers(self) -> List[str]:
+        """Get list of providers in priority order from config"""
+        priority_str = self.config.provider_priority.lower()
+        providers = [p.strip() for p in priority_str.split(",")]
+        return [p for p in providers if p]  # Filter empty strings
+    
+    def _set_current_provider(self):
+        """Set the current provider based on priority order, skipping failed ones"""
+        priority_providers = self._get_priority_providers()
+        current_time = time.time()
+        
+        for provider_name in priority_providers:
+            # Skip if provider not initialized
+            if provider_name not in self._providers:
+                continue
+            
+            # Skip if provider recently failed (within cooldown period)
+            if provider_name in self._failed_providers:
+                failure_time = self._failed_providers[provider_name]
+                if current_time - failure_time < self._failure_cooldown_seconds:
+                    logger.debug(f"Skipping {provider_name} - in cooldown period")
+                    continue
+                else:
+                    # Cooldown expired, remove from failed list
+                    logger.info(f"Cooldown expired for {provider_name}, will retry")
+                    del self._failed_providers[provider_name]
+            
+            # Check if provider is available
+            provider = self._providers[provider_name]
+            if provider.is_available():
+                self._current_provider = provider
+                self._current_provider_name = provider_name
+                logger.info(f"Using AI provider: {provider_name}")
+                return
+        
+        # No available provider found
+        self._current_provider = None
+        self._current_provider_name = ""
+        logger.warning("No available AI providers - all providers failed or not configured")
+    
+    def _should_fallback(self, error_message: str) -> bool:
+        """Check if error should trigger fallback to next provider"""
+        if not self.config.enable_fallback:
+            return False
+        
+        error_lower = error_message.lower()
+        for pattern in FALLBACK_ERROR_PATTERNS:
+            if pattern.lower() in error_lower:
+                return True
+        return False
+    
+    def _mark_provider_failed(self, provider_name: str):
+        """Mark a provider as failed"""
+        self._failed_providers[provider_name] = time.time()
+        logger.warning(f"Marked provider '{provider_name}' as failed")
+    
+    async def chat(self, messages: List[Dict[str, str]], temperature: float = 0.2, max_tokens: int = 1000) -> str:
+        """
+        Send chat request with automatic fallback.
+        If primary provider fails, tries next available provider.
+        """
+        if not self._providers:
+            return "Error: No AI providers configured"
+        
+        # Try each provider in priority order
+        priority_providers = self._get_priority_providers()
+        tried_providers = set()
+        
+        while priority_providers:
+            # Get next provider from priority list that we haven't tried
+            provider_name = None
+            for p in priority_providers:
+                if p not in tried_providers:
+                    provider_name = p
+                    break
+            
+            if provider_name is None:
+                break
+            
+            tried_providers.add(provider_name)
+            
+            # Check if provider is available
+            if provider_name not in self._providers:
+                continue
+            
+            # Check cooldown
+            if provider_name in self._failed_providers:
+                current_time = time.time()
+                failure_time = self._failed_providers[provider_name]
+                if current_time - failure_time < self._failure_cooldown_seconds:
+                    continue
+                else:
+                    del self._failed_providers[provider_name]
+            
+            provider = self._providers[provider_name]
+            if not provider.is_available():
+                continue
+            
+            # Try to use this provider
+            self._current_provider = provider
+            self._current_provider_name = provider_name
+            
+            try:
+                response = await provider.chat(messages, temperature, max_tokens)
+                
+                # Check if response indicates an error that should trigger fallback
+                if self._should_fallback(response):
+                    logger.warning(f"Provider {provider_name} returned error: {response[:100]}")
+                    self._mark_provider_failed(provider_name)
+                    # Try next provider
+                    continue
+                
+                # Success! Return response
+                logger.debug(f"AI request successful with provider: {provider_name}")
+                return response
+                
+            except Exception as e:
+                error_msg = str(e)
+                logger.warning(f"Provider {provider_name} failed with error: {error_msg}")
+                
+                if self._should_fallback(error_msg):
+                    self._mark_provider_failed(provider_name)
+                    # Try next provider
+                    continue
+                else:
+                    # Non-fallback error, return error
+                    return f"Error: {error_msg}"
+        
+        # All providers failed
+        return "Error: All AI providers failed. Please check your API keys and quotas."
+    
+    def get_current_provider_name(self) -> str:
+        """Get the name of the currently active provider"""
+        return self._current_provider_name
+    
+    def is_available(self) -> bool:
+        """Check if any provider is available"""
+        return self._current_provider is not None and self._current_provider.is_available()
+    
+    def get_available_providers(self) -> List[str]:
+        """Get list of currently available providers (not in failed state)"""
+        available = []
+        current_time = time.time()
+        
+        for name, provider in self._providers.items():
+            # Skip if in failed state and within cooldown
+            if name in self._failed_providers:
+                failure_time = self._failed_providers[name]
+                if current_time - failure_time < self._failure_cooldown_seconds:
+                    continue
+            
+            if provider.is_available():
+                available.append(name)
+        
+        return available
+
+
 # ==================== AI SIGNAL ANALYZER ====================
 
 @dataclass
@@ -299,58 +539,42 @@ Respond in JSON format with the following structure:
     def __init__(self):
         self.config = get_config()
         self.ai_config = self.config.ai
-        self._client: Optional[AIClient] = None
+        self._provider_manager: Optional[AIProviderManager] = None
         self._analysis_count = 0
         self._cache = AICache(ttl_minutes=self.ai_config.cache_ttl_minutes)
         
-        # Initialize the appropriate AI client
+        # Initialize the AI provider manager (with fallback support)
         self._initialize_client()
     
     def _initialize_client(self):
-        """Initialize the configured AI client"""
-        provider = self.ai_config.provider.lower()
+        """Initialize the AI provider manager with automatic fallback"""
         
-        if provider == "openai" and self.ai_config.openai_api_key:
-            self._client = OpenAIClient(
-                api_key=self.ai_config.openai_api_key,
-                model=self.ai_config.openai_model
-            )
-            logger.info(f"Initialized OpenAI client with model: {self.ai_config.openai_model}")
-            
-        elif provider == "anthropic" and self.ai_config.anthropic_api_key:
-            self._client = AnthropicClient(
-                api_key=self.ai_config.anthropic_api_key,
-                model=self.ai_config.anthropic_model
-            )
-            logger.info(f"Initialized Anthropic client with model: {self.ai_config.anthropic_model}")
-            
-        elif provider == "groq" and self.ai_config.groq_api_key:
-            self._client = GroqClient(
-                api_key=self.ai_config.groq_api_key,
-                model=self.ai_config.groq_model
-            )
-            logger.info(f"Initialized Groq client with model: {self.ai_config.groq_model}")
-            
-        elif provider == "ollama":
-            self._client = OllamaClient(
-                base_url=self.ai_config.ollama_base_url,
-                model=self.ai_config.ollama_model
-            )
-            logger.info(f"Initialized Ollama client with model: {self.ai_config.ollama_model}")
-            
+        # Use the AIProviderManager which handles multiple providers with fallback
+        self._provider_manager = AIProviderManager(self.ai_config)
+        
+        if self._provider_manager.is_available():
+            current_provider = self._provider_manager.get_current_provider_name()
+            available = self._provider_manager.get_available_providers()
+            logger.info(f"AI Provider Manager ready. Current: {current_provider}, Available: {available}")
         else:
-            logger.warning(f"AI provider '{provider}' not configured or not available")
+            logger.warning("AI Provider Manager initialized but no providers available")
             logger.warning("Please set at least one AI API key in .env")
-            self._client = None
     
     @property
     def is_available(self) -> bool:
         """Check if AI analysis is available"""
         return (
             self.ai_config.enable_ai_analysis and 
-            self._client is not None and 
-            self._client.is_available()
+            self._provider_manager is not None and 
+            self._provider_manager.is_available()
         )
+    
+    @property
+    def current_provider(self) -> str:
+        """Get the name of the current AI provider"""
+        if self._provider_manager:
+            return self._provider_manager.get_current_provider_name()
+        return ""
     
     def _format_signal_for_ai(self, signal: TradingSignal, coin: Optional[CoinData] = None) -> str:
         """Format trading signal data for AI analysis"""
@@ -480,9 +704,9 @@ Analyze this signal and provide your assessment.
         ]
         
         try:
-            # Make API call with timeout
+            # Make API call with timeout (using provider manager for automatic fallback)
             response = await asyncio.wait_for(
-                self._client.chat(
+                self._provider_manager.chat(
                     messages=messages,
                     temperature=self.ai_config.ai_temperature,
                     max_tokens=self.ai_config.ai_max_tokens
@@ -499,7 +723,8 @@ Analyze this signal and provide your assessment.
             # Parse response
             parsed = self._parse_ai_response(response)
             
-            logger.info(f"AI analyzed {signal.symbol}: {parsed['trade_recommendation']} (confidence: {parsed['ai_confidence']}/10)")
+            current_provider = self._provider_manager.get_current_provider_name()
+            logger.info(f"AI analyzed {signal.symbol} using {current_provider}: {parsed['trade_recommendation']} (confidence: {parsed['ai_confidence']}/10)")
             
             return AIAnalysisResult(
                 signal_id=signal.id,
@@ -636,40 +861,21 @@ Output JSON format:
     def __init__(self):
         self.config = get_config()
         self.ai_config = self.config.ai
-        self._client = None
+        self._provider_manager = None
         self._initialize_client()
     
     def _initialize_client(self):
-        """Initialize the AI client"""
-        provider = self.ai_config.provider.lower()
-        
-        if provider == "openai" and self.ai_config.openai_api_key:
-            self._client = OpenAIClient(
-                api_key=self.ai_config.openai_api_key,
-                model=self.ai_config.openai_model
-            )
-        elif provider == "anthropic" and self.ai_config.anthropic_api_key:
-            self._client = AnthropicClient(
-                api_key=self.ai_config.anthropic_api_key,
-                model=self.ai_config.anthropic_model
-            )
-        elif provider == "groq" and self.ai_config.groq_api_key:
-            self._client = GroqClient(
-                api_key=self.ai_config.groq_api_key,
-                model=self.ai_config.groq_model
-            )
-        elif provider == "ollama":
-            self._client = OllamaClient(
-                base_url=self.ai_config.ollama_base_url,
-                model=self.ai_config.ollama_model
-            )
+        """Initialize the AI provider manager with fallback support"""
+        self._provider_manager = AIProviderManager(self.ai_config)
+        if self._provider_manager.is_available():
+            logger.info(f"AISignalGenerator ready with provider: {self._provider_manager.get_current_provider_name()}")
     
     @property
     def is_available(self) -> bool:
         return (
             self.ai_config.enable_ai_analysis and 
-            self._client is not None and 
-            self._client.is_available()
+            self._provider_manager is not None and 
+            self._provider_manager.is_available()
         )
     
     def _format_market_data(self, coin: CoinData, btc_trend: TrendDirection, timeframe: str) -> str:
@@ -732,7 +938,7 @@ Return NO_SIGNAL if no clear setup exists.
             ]
             
             response = await asyncio.wait_for(
-                self._client.chat(
+                self._provider_manager.chat(
                     messages=messages,
                     temperature=0.3,
                     max_tokens=800

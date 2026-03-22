@@ -92,6 +92,15 @@ class AIConfig:
     # AI Provider: openai, anthropic, groq, ollama
     provider: str = os.getenv("AI_PROVIDER", "openai")
     
+    # AI Provider priority order (comma-separated) - used for automatic fallback
+    # When primary provider fails (rate limit, quota exceeded), system will try next provider
+    # Options: openai, anthropic, groq, ollama
+    # Example: AI_PROVIDER_PRIORITY=groq,anthropic,openai,ollama
+    provider_priority: str = os.getenv("AI_PROVIDER_PRIORITY", "openai,anthropic,groq,ollama")
+    
+    # Enable automatic fallback to next provider on failure
+    enable_fallback: bool = os.getenv("ENABLE_AI_FALLBACK", "true").lower() == "true"
+    
     # API Keys
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
     anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY", "")
