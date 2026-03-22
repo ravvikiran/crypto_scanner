@@ -7,11 +7,11 @@ import asyncio
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Dict
 from loguru import logger
 
 from config import get_config
-from models import TradingSignal, MarketSummary, TrendDirection, SignalDirection
+from models import TradingSignal, MarketSummary, TrendDirection, SignalDirection, CoinData
 from collectors import MarketDataCollector
 from indicators import IndicatorEngine
 from strategies import StrategyEngine
@@ -20,6 +20,7 @@ from filters import BitcoinFilter
 from alerts import AlertManager
 from dashboard import Dashboard
 from storage import PerformanceTracker
+from ai import AISignalAnalyzer, AISignalGenerator
 
 
 class CryptoScanner:
@@ -37,6 +38,13 @@ class CryptoScanner:
         self.alert_manager = AlertManager()
         self.dashboard = Dashboard()
         self.tracker = PerformanceTracker()
+        
+        # Initialize AI modules
+        self.ai_analyzer = AISignalAnalyzer()
+        self.ai_generator = AISignalGenerator()
+        
+        # Store coins for AI analysis
+        self._coins_cache: Dict[str, CoinData] = {}
         
         # State
         self.is_running = False
@@ -133,13 +141,84 @@ class CryptoScanner:
             max_signals = 3
             final_signals = final_signals[:max_signals]
             
+            # Step 9: AI Analysis and Enhancement
+            if self.ai_analyzer.is_available:
+                logger.info("=" * 50)
+                logger.info("🧠 Running AI Analysis...")
+                logger.info("=" * 50)
+                
+                # Reset AI analysis count for this scan
+                self.ai_analyzer.reset_analysis_count()
+                
+                # Build coins lookup dict
+                coins_dict = {c.symbol: c for c in coins}
+                
+                # Run AI analysis on signals
+                ai_results = await self.ai_analyzer.analyze_signals_batch(final_signals, coins_dict)
+                
+                if ai_results:
+                    # Apply AI enhancements to signals
+                    final_signals = self.ai_analyzer.apply_ai_enhancements(final_signals, ai_results)
+                    
+                    # Re-rank by updated confidence
+                    final_signals = self.scorer.rank_signals(final_signals)
+                    
+                    # Re-filter by minimum score
+                    final_signals = [s for s in final_signals if s.confidence_score >= self.config.scanner.min_signal_score]
+                    
+                    # Keep top 3
+                    final_signals = final_signals[:3]
+                    
+                    logger.info(f"AI enhanced {len(final_signals)} signals")
+                else:
+                    logger.info("No AI analysis results available")
+            else:
+                logger.info("AI analysis not available - skipping (configure AI in .env)")
+            
+            # Step 10: Optional AI Signal Generation
+            if self.ai_generator.is_available and self.config.ai.enable_ai_analysis:
+                logger.info("=" * 50)
+                logger.info("🤖 Generating AI Signals...")
+                logger.info("=" * 50)
+                
+                # Try to generate AI signals from top coins
+                top_coins_for_ai = coins[:50]  # Limit to top 50 for speed
+                
+                for coin in top_coins_for_ai:
+                    if len(final_signals) >= 5:  # Limit total signals
+                        break
+                    
+                    primary_tf = self.config.scanner.timeframes[0] if self.config.scanner.timeframes else "4h"
+                    ai_signal = await self.ai_generator.generate_signal(coin, btc_trend, primary_tf)
+                    
+                    if ai_signal:
+                        # Score the AI-generated signal
+                        ai_signal = self.scorer.enrich_with_btc_alignment(ai_signal, btc_trend)
+                        ai_signal = self.scorer.score_signal(ai_signal)
+                        
+                        # Check if it meets quality thresholds
+                        if (ai_signal.confidence_score >= 6.0 and 
+                            ai_signal.risk_reward >= 3.0):
+                            # Additional check for BTC alignment
+                            if btc_trend.value == "NEUTRAL" or (
+                                btc_trend.value == "BULLISH" and ai_signal.direction.value == "LONG"
+                            ) or (
+                                btc_trend.value == "BEARISH" and ai_signal.direction.value == "SHORT"
+                            ):
+                                final_signals.append(ai_signal)
+                                logger.info(f"AI generated signal for {coin.symbol}: {ai_signal.direction.value}")
+                
+                # Re-rank and limit
+                final_signals = self.scorer.rank_signals(final_signals)[:3]
+            
             # Print signal details
             if final_signals:
                 logger.info("="*50)
                 logger.info("TOP SIGNALS")
                 logger.info("="*50)
                 for i, sig in enumerate(final_signals, 1):
-                    logger.info(f"\n{i}. {sig.symbol} {sig.direction.value}")
+                    ai_indicator = "🤖" if "AI" in sig.reasoning and "AI GENERATED" in sig.reasoning else ""
+                    logger.info(f"\n{i}. {sig.symbol} {sig.direction.value} {ai_indicator}")
                     logger.info(f"   Strategy: {sig.strategy_type.value}")
                     logger.info(f"   Timeframe: {sig.timeframe}")
                     logger.info(f"   Entry: ${sig.entry_zone_min:.2f} - ${sig.entry_zone_max:.2f}")
@@ -147,7 +226,10 @@ class CryptoScanner:
                     logger.info(f"   Targets: T1=${sig.target_1:.2f}, T2=${sig.target_2:.2f}")
                     logger.info(f"   Risk/Reward: 1:{sig.risk_reward:.1f}")
                     logger.info(f"   Confidence: {sig.confidence_score:.1f}/10")
-                    logger.info(f"   Reason: {sig.reasoning}")
+                    # Show AI badge in confidence if enhanced
+                    if sig.score_breakdown.get("ai_enhanced"):
+                        logger.info(f"   🧠 AI Enhanced: Yes (AI conf: {sig.score_breakdown.get('ai_enhanced'):.1f}/10)")
+                    logger.info(f"   Reason: {sig.reasoning[:200]}...")
             
             # Calculate scan duration
             scan_duration = time.time() - scan_start

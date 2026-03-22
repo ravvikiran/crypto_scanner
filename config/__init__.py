@@ -87,6 +87,38 @@ class TradingConfig:
 
 
 @dataclass
+class AIConfig:
+    """AI/LLM Configuration"""
+    # AI Provider: openai, anthropic, groq, ollama
+    provider: str = os.getenv("AI_PROVIDER", "openai")
+    
+    # API Keys
+    openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
+    anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY", "")
+    groq_api_key: str = os.getenv("GROQ_API_KEY", "")
+    ollama_base_url: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    
+    # Model settings
+    openai_model: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    anthropic_model: str = os.getenv("ANTHROPIC_MODEL", "claude-3-haiku-20240307")
+    groq_model: str = os.getenv("GROQ_MODEL", "llama-3.1-70b-versatile")
+    ollama_model: str = os.getenv("OLLAMA_MODEL", "llama3")
+    
+    # AI Analysis settings
+    enable_ai_analysis: bool = os.getenv("ENABLE_AI_ANALYSIS", "true").lower() == "true"
+    ai_temperature: float = float(os.getenv("AI_TEMPERATURE", "0.2"))
+    ai_max_tokens: int = int(os.getenv("AI_MAX_TOKENS", "1000"))
+    
+    # AI Cache settings
+    cache_analysis: bool = os.getenv("CACHE_AI_ANALYSIS", "true").lower() == "true"
+    cache_ttl_minutes: int = int(os.getenv("AI_CACHE_TTL_MINUTES", "60"))
+    
+    # Rate limiting
+    max_ai_calls_per_scan: int = int(os.getenv("MAX_AI_CALLS_PER_SCAN", "10"))
+    ai_timeout_seconds: int = int(os.getenv("AI_TIMEOUT_SECONDS", "30"))
+
+
+@dataclass
 class LoggingConfig:
     """Logging Configuration"""
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
@@ -101,6 +133,7 @@ class Config:
     scanner: ScannerConfig = field(default_factory=ScannerConfig)
     strategy: StrategyConfig = field(default_factory=StrategyConfig)
     trading: TradingConfig = field(default_factory=TradingConfig)
+    ai: AIConfig = field(default_factory=AIConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
 
 

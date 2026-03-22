@@ -1,6 +1,6 @@
 # Crypto Momentum & Reversal AI Scanner
 
-An AI-driven crypto market scanner that continuously analyzes the **top 500 cryptocurrencies** and identifies high-probability trading setups based on trend structure, volume confirmation, and volatility expansion.
+An AI-driven crypto market scanner that continuously analyzes the **top 500 cryptocurrencies** and identifies high-probability trading setups based on trend structure, volume confirmation, and volatility expansion. Now with **real AI/LLM integration** for intelligent signal analysis and generation.
 
 ## Features
 
@@ -11,14 +11,29 @@ An AI-driven crypto market scanner that continuously analyzes the **top 500 cryp
 - **Liquidity Sweep Reversal** - Detects fake breakouts
 - **Volatility Breakout** - Captures explosive moves from compression
 
-### 🧠 AI Signal Scoring
+### 🧠 AI/LLM Integration
 
-- Confidence scoring (0-10) based on:
-  - Trend alignment (+3)
-  - Volume confirmation (+2)
-  - BTC alignment (+2)
-  - Volatility expansion (+2)
-  - Liquidity sweep (+1)
+The scanner now uses AI to enhance trading signals:
+
+- **AI Signal Analysis** - Each signal is analyzed by an LLM to:
+  - Validate the trading setup
+  - Provide enhanced reasoning and market context
+  - Assess risk factors
+  - Generate actionable recommendations
+  - Identify key support/resistance levels
+
+- **AI Signal Generation** - The AI can also generate its own signals by:
+  - Analyzing market data independently
+  - Identifying patterns the rule-based system might miss
+  - Providing independent confirmation of setups
+
+- **Multiple AI Providers Supported**:
+  - OpenAI (GPT-4, GPT-4o-mini)
+  - Anthropic (Claude 3)
+  - Groq (Fast free inference)
+  - Ollama (Local LLM)
+
+- **Smart Caching** - Reduces API calls by caching analysis results
 
 ### 📊 Bitcoin Market Filter
 
@@ -103,6 +118,58 @@ python main.py test
 
 Edit these in `.env` file.
 
+### AI/LLM Settings
+
+| Setting | Default | Description |
+| ------------------------- | ------- | --------------------- |
+| `AI_PROVIDER` | openai | AI provider: openai, anthropic, groq, ollama |
+| `OPENAI_API_KEY` | - | Your OpenAI API key |
+| `ANTHROPIC_API_KEY` | - | Your Anthropic API key |
+| `GROQ_API_KEY` | - | Your Groq API key (free) |
+| `OLLAMA_BASE_URL` | http://localhost:11434 | Ollama local server URL |
+| `ENABLE_AI_ANALYSIS` | true | Enable/disable AI analysis |
+| `MAX_AI_CALLS_PER_SCAN` | 10 | Max AI analyses per scan |
+| `CACHE_AI_ANALYSIS` | true | Cache results to reduce API calls |
+
+## Setting Up AI Providers
+
+### Option 1: Groq (Recommended - Free & Fast)
+
+1. Get a free API key at https://console.groq.com/
+2. Add to `.env`:
+   ```
+   AI_PROVIDER=groq
+   GROQ_API_KEY=your_groq_api_key
+   ```
+
+### Option 2: OpenAI
+
+1. Get an API key at https://platform.openai.com/
+2. Add to `.env`:
+   ```
+   AI_PROVIDER=openai
+   OPENAI_API_KEY=your_openai_api_key
+   ```
+
+### Option 3: Anthropic Claude
+
+1. Get an API key at https://www.anthropic.com/
+2. Add to `.env`:
+   ```
+   AI_PROVIDER=anthropic
+   ANTHROPIC_API_KEY=your_anthropic_api_key
+   ```
+
+### Option 4: Ollama (Local - No API Costs)
+
+1. Install Ollama from https://ollama.ai
+2. Run: `ollama pull llama3`
+3. Add to `.env`:
+   ```
+   AI_PROVIDER=ollama
+   OLLAMA_MODEL=llama3
+   ```
+
 ## Supported Timeframes
 
 - 4 Hours (`4h`)
@@ -158,6 +225,7 @@ Edit these in `.env` file.
 
 ## Signal Output Example
 
+### Standard Signal (Rule-based)
 ```
 BNB SHORT (4h)
 Strategy: Bearish Trend Short
@@ -165,7 +233,26 @@ Entry: $671.62 - $673.64
 Stop Loss: $687.11
 Targets: T1=$631.20, T2=$617.72
 Risk/Reward: 1:3.0
-Confidence: 10.0/10
+Confidence: 8.5/10
+```
+
+### AI-Enhanced Signal
+```
+1. ETH LONG 🧠
+   Strategy: Trend Continuation
+   Timeframe: 4h
+   Entry: $3245.00 - $3250.00
+   Stop Loss: $3185.00
+   Targets: T1=$3380.00, T2=$3450.00
+   Risk/Reward: 1:3.5
+   Confidence: 9.2/10
+   🧠 AI Enhanced: Yes (AI conf: 9.5/10)
+   Reason: Trend pullback to EMA20/EMA50. RSI momentum at 62.1.
+
+   🧠 AI Analysis: Strong bullish setup with clear EMA alignment...
+   📊 Market Context: BTC showing bullish momentum...
+   ⚠️ Risk Assessment: Low risk - good risk/reward...
+   🎯 Recommendation: STRONG BUY
 ```
 
 ## Database
@@ -175,6 +262,21 @@ Signals and trades are stored in `data/performance.db` (SQLite).
 ## Disclaimer
 
 This scanner is for educational purposes. Always do your own research before making trading decisions. Cryptocurrency trading involves substantial risk.
+
+## Version History
+
+### v1.1.0 - AI Integration (Current)
+- Added AI/LLM integration for intelligent signal analysis
+- Support for multiple AI providers (OpenAI, Anthropic, Groq, Ollama)
+- AI signal enhancement with market context and risk assessment
+- AI-powered signal generation capability
+- Smart caching to reduce API costs
+
+### v1.0.0 - Initial Release
+- Multi-strategy scanning
+- Rule-based confidence scoring
+- Bitcoin market filter
+- Alert system
 
 ## License
 

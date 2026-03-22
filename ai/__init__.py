@@ -1,0 +1,790 @@
+"""
+AI Signal Analyzer Module
+Integrates LLMs for intelligent trade signal analysis and enhancement.
+"""
+
+import asyncio
+import hashlib
+import json
+import time
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Any
+from loguru import logger
+
+from config import get_config
+from models import TradingSignal, CoinData, TrendDirection, SignalDirection
+
+
+# ==================== AI PROVIDER INTERFACES ====================
+
+class AIClient(ABC):
+    """Abstract base class for AI providers"""
+    
+    @abstractmethod
+    async def chat(self, messages: List[Dict[str, str]], temperature: float = 0.2, max_tokens: int = 1000) -> str:
+        """Send chat request and get response"""
+        pass
+    
+    @abstractmethod
+    def is_available(self) -> bool:
+        """Check if provider is available and configured"""
+        pass
+
+
+class OpenAIClient(AIClient):
+    """OpenAI GPT client"""
+    
+    def __init__(self, api_key: str, model: str = "gpt-4o-mini"):
+        self.api_key = api_key
+        self.model = model
+        self._client = None
+    
+    def _get_client(self):
+        if self._client is None:
+            try:
+                from openai import AsyncOpenAI
+                self._client = AsyncOpenAI(api_key=self.api_key)
+            except ImportError:
+                logger.error("OpenAI package not installed. Run: pip install openai")
+                return None
+        return self._client
+    
+    def is_available(self) -> bool:
+        return bool(self.api_key)
+    
+    async def chat(self, messages: List[Dict[str, str]], temperature: float = 0.2, max_tokens: int = 1000) -> str:
+        client = self._get_client()
+        if not client:
+            return "Error: OpenAI client not available"
+        
+        try:
+            response = await client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            logger.error(f"OpenAI API error: {e}")
+            return f"Error: {str(e)}"
+
+
+class AnthropicClient(AIClient):
+    """Anthropic Claude client"""
+    
+    def __init__(self, api_key: str, model: str = "claude-3-haiku-20240307"):
+        self.api_key = api_key
+        self.model = model
+        self._client = None
+    
+    def _get_client(self):
+        if self._client is None:
+            try:
+                from anthropic import AsyncAnthropic
+                self._client = AsyncAnthropic(api_key=self.api_key)
+            except ImportError:
+                logger.error("Anthropic package not installed. Run: pip install anthropic")
+                return None
+        return self._client
+    
+    def is_available(self) -> bool:
+        return bool(self.api_key)
+    
+    async def chat(self, messages: List[Dict[str, str]], temperature: float = 0.2, max_tokens: int = 1000) -> str:
+        client = self._get_client()
+        if not client:
+            return "Error: Anthropic client not available"
+        
+        try:
+            # Convert messages format for Anthropic
+            system_message = ""
+            anthropic_messages = []
+            for msg in messages:
+                if msg["role"] == "system":
+                    system_message = msg["content"]
+                else:
+                    anthropic_messages.append(msg)
+            
+            response = await client.messages.create(
+                model=self.model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                system=system_message,
+                messages=anthropic_messages
+            )
+            return response.content[0].text
+        except Exception as e:
+            logger.error(f"Anthropic API error: {e}")
+            return f"Error: {str(e)}"
+
+
+class GroqClient(AIClient):
+    """Groq client for fast inference"""
+    
+    def __init__(self, api_key: str, model: str = "llama-3.1-70b-versatile"):
+        self.api_key = api_key
+        self.model = model
+        self._client = None
+    
+    def _get_client(self):
+        if self._client is None:
+            try:
+                from groq import AsyncGroq
+                self._client = AsyncGroq(api_key=self.api_key)
+            except ImportError:
+                logger.error("Groq package not installed. Run: pip install groq")
+                return None
+        return self._client
+    
+    def is_available(self) -> bool:
+        return bool(self.api_key)
+    
+    async def chat(self, messages: List[Dict[str, str]], temperature: float = 0.2, max_tokens: int = 1000) -> str:
+        client = self._get_client()
+        if not client:
+            return "Error: Groq client not available"
+        
+        try:
+            response = await client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            logger.error(f"Groq API error: {e}")
+            return f"Error: {str(e)}"
+
+
+class OllamaClient(AIClient):
+    """Ollama local LLM client"""
+    
+    def __init__(self, base_url: str, model: str = "llama3"):
+        self.base_url = base_url
+        self.model = model
+    
+    def is_available(self) -> bool:
+        return bool(self.base_url)
+    
+    async def chat(self, messages: List[Dict[str, str]], temperature: float = 0.2, max_tokens: int = 1000) -> str:
+        import aiohttp
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                # Convert messages format for Ollama
+                ollama_messages = []
+                system_message = ""
+                for msg in messages:
+                    if msg["role"] == "system":
+                        system_message = msg["content"]
+                    else:
+                        ollama_messages.append(msg)
+                
+                payload = {
+                    "model": self.model,
+                    "messages": ollama_messages,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                    "stream": False
+                }
+                
+                async with session.post(
+                    f"{self.base_url}/api/chat",
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=60)
+                ) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return data.get("message", {}).get("content", "")
+                    else:
+                        return f"Error: Ollama API returned status {response.status}"
+        except Exception as e:
+            logger.error(f"Ollama API error: {e}")
+            return f"Error: {str(e)}"
+
+
+# ==================== AI SIGNAL ANALYZER ====================
+
+@dataclass
+class AIAnalysisResult:
+    """Result of AI signal analysis"""
+    signal_id: str
+    ai_confidence: float  # AI's own confidence 0-10
+    ai_reasoning: str
+    market_context: str
+    risk_assessment: str
+    key_levels: Dict[str, float]
+    trade_recommendation: str
+    timestamp: datetime = field(default_factory=datetime.now)
+
+
+class AICache:
+    """Simple in-memory cache for AI analysis"""
+    
+    def __init__(self, ttl_minutes: int = 60):
+        self._cache: Dict[str, tuple[str, datetime]] = {}
+        self._ttl = timedelta(minutes=ttl_minutes)
+    
+    def _make_key(self, signal_data: str) -> str:
+        """Generate cache key from signal data"""
+        return hashlib.sha256(signal_data.encode()).hexdigest()
+    
+    def get(self, signal_data: str) -> Optional[str]:
+        """Get cached analysis"""
+        key = self._make_key(signal_data)
+        if key in self._cache:
+            result, timestamp = self._cache[key]
+            if datetime.now() - timestamp < self._ttl:
+                logger.debug(f"Cache hit for signal")
+                return result
+            else:
+                del self._cache[key]
+        return None
+    
+    def set(self, signal_data: str, result: str):
+        """Cache analysis result"""
+        key = self._make_key(signal_data)
+        self._cache[key] = (result, datetime.now())
+    
+    def clear(self):
+        """Clear all cache"""
+        self._cache.clear()
+
+
+class AISignalAnalyzer:
+    """
+    AI-powered signal analyzer that uses LLMs to:
+    - Analyze market conditions
+    - Validate trading signals
+    - Provide enhanced reasoning
+    - Assess risk
+    - Generate trade recommendations
+    """
+    
+    SYSTEM_PROMPT = """You are an expert cryptocurrency trading analyst with deep knowledge of:
+- Technical analysis (price action, indicators, chart patterns)
+- Market microstructure and liquidity concepts
+- Risk management and position sizing
+- Market psychology and sentiment
+
+Your role is to analyze trading signals from a crypto scanner and provide:
+1. AI confidence score (0-10)
+2. Enhanced reasoning with market context
+3. Risk assessment
+4. Key support/resistance levels
+5. Trade recommendation (STRONG BUY, BUY, HOLD, SELL, STRONG SELL)
+
+Be concise but thorough. Focus on actionable insights.
+Always consider:
+- Current market regime (bull/bear/neutral)
+- BTC correlation
+- Volume dynamics
+- Risk/reward ratio
+- Recent price action
+
+Respond in JSON format with the following structure:
+{
+    "ai_confidence": <float 0-10>,
+    "ai_reasoning": "<detailed explanation>",
+    "market_context": "<current market conditions>",
+    "risk_assessment": "<risk factors>",
+    "key_levels": {"support": <float>, "resistance": <float>},
+    "trade_recommendation": "<STRONG BUY|BUY|HOLD|SELL|STRONG SELL>"
+}"""
+
+    def __init__(self):
+        self.config = get_config()
+        self.ai_config = self.config.ai
+        self._client: Optional[AIClient] = None
+        self._analysis_count = 0
+        self._cache = AICache(ttl_minutes=self.ai_config.cache_ttl_minutes)
+        
+        # Initialize the appropriate AI client
+        self._initialize_client()
+    
+    def _initialize_client(self):
+        """Initialize the configured AI client"""
+        provider = self.ai_config.provider.lower()
+        
+        if provider == "openai" and self.ai_config.openai_api_key:
+            self._client = OpenAIClient(
+                api_key=self.ai_config.openai_api_key,
+                model=self.ai_config.openai_model
+            )
+            logger.info(f"Initialized OpenAI client with model: {self.ai_config.openai_model}")
+            
+        elif provider == "anthropic" and self.ai_config.anthropic_api_key:
+            self._client = AnthropicClient(
+                api_key=self.ai_config.anthropic_api_key,
+                model=self.ai_config.anthropic_model
+            )
+            logger.info(f"Initialized Anthropic client with model: {self.ai_config.anthropic_model}")
+            
+        elif provider == "groq" and self.ai_config.groq_api_key:
+            self._client = GroqClient(
+                api_key=self.ai_config.groq_api_key,
+                model=self.ai_config.groq_model
+            )
+            logger.info(f"Initialized Groq client with model: {self.ai_config.groq_model}")
+            
+        elif provider == "ollama":
+            self._client = OllamaClient(
+                base_url=self.ai_config.ollama_base_url,
+                model=self.ai_config.ollama_model
+            )
+            logger.info(f"Initialized Ollama client with model: {self.ai_config.ollama_model}")
+            
+        else:
+            logger.warning(f"AI provider '{provider}' not configured or not available")
+            logger.warning("Please set at least one AI API key in .env")
+            self._client = None
+    
+    @property
+    def is_available(self) -> bool:
+        """Check if AI analysis is available"""
+        return (
+            self.ai_config.enable_ai_analysis and 
+            self._client is not None and 
+            self._client.is_available()
+        )
+    
+    def _format_signal_for_ai(self, signal: TradingSignal, coin: Optional[CoinData] = None) -> str:
+        """Format trading signal data for AI analysis"""
+        
+        # Get key levels from coin data if available
+        support = "N/A"
+        resistance = "N/A"
+        rsi = "N/A"
+        volume_ratio = "N/A"
+        
+        if coin and coin.candles.get(signal.timeframe):
+            candles = coin.candles[signal.timeframe]
+            if len(candles) >= 20:
+                recent_highs = [c.high for c in candles[-20:]]
+                recent_lows = [c.low for c in candles[-20:]]
+                support = f"${min(recent_lows):.4f}"
+                resistance = f"${max(recent_highs):.4f}"
+        
+        if coin and coin.rsi:
+            rsi = f"{coin.rsi:.1f}"
+        
+        # Format signal data
+        signal_data = f"""
+TRADING SIGNAL ANALYSIS REQUEST
+==============================
+
+SYMBOL: {signal.symbol}
+DIRECTION: {signal.direction.value}
+STRATEGY: {signal.strategy_type.value}
+TIMEFRAME: {signal.timeframe}
+
+PRICE DATA:
+- Current Price: ${signal.current_price:.4f}
+- Entry Zone: ${signal.entry_zone_min:.4f} - ${signal.entry_zone_max:.4f}
+- Stop Loss: ${signal.stop_loss:.4f}
+- Target 1: ${signal.target_1:.4f}
+- Target 2: ${signal.target_2:.4f}
+
+RISK/REWARD: 1:{signal.risk_reward:.1f}
+CONFIDENCE SCORE: {signal.confidence_score:.1f}/10
+
+TECHNICAL INDICATORS:
+- Trend Alignment: {'Yes' if signal.trend_alignment else 'No'}
+- Volume Confirmation: {'Yes' if signal.volume_confirmation else 'No'}
+- BTC Alignment: {'Yes' if signal.btc_alignment else 'No'}
+- Volatility Expansion: {'Yes' if signal.volatility_expansion else 'No'}
+- Liquidity Sweep: {'Yes' if signal.liquidity_sweep else 'No'}
+
+BTC TREND: {signal.btc_trend.value}
+
+ORIGINAL REASONING: {signal.reasoning}
+
+KEY LEVELS (from chart):
+- Support: {support}
+- Resistance: {resistance}
+- RSI: {rsi}
+
+Analyze this signal and provide your assessment.
+"""
+        return signal_data
+    
+    def _parse_ai_response(self, response: str) -> Dict[str, Any]:
+        """Parse AI JSON response"""
+        import re
+        
+        # Try to extract JSON from response
+        try:
+            # Find JSON block
+            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            if json_match:
+                data = json.loads(json_match.group())
+                return {
+                    "ai_confidence": float(data.get("ai_confidence", 5.0)),
+                    "ai_reasoning": data.get("ai_reasoning", ""),
+                    "market_context": data.get("market_context", ""),
+                    "risk_assessment": data.get("risk_assessment", ""),
+                    "key_levels": data.get("key_levels", {}),
+                    "trade_recommendation": data.get("trade_recommendation", "HOLD")
+                }
+        except Exception as e:
+            logger.error(f"Failed to parse AI response: {e}")
+        
+        # Fallback parsing
+        return {
+            "ai_confidence": 5.0,
+            "ai_reasoning": response[:500] if response else "No analysis available",
+            "market_context": "",
+            "risk_assessment": "",
+            "key_levels": {},
+            "trade_recommendation": "HOLD"
+        }
+    
+    async def analyze_signal(self, signal: TradingSignal, coin: Optional[CoinData] = None) -> Optional[AIAnalysisResult]:
+        """Analyze a trading signal with AI"""
+        
+        # Check if AI is available
+        if not self.is_available:
+            logger.debug("AI analysis not available - provider not configured")
+            return None
+        
+        # Check rate limiting
+        if self._analysis_count >= self.ai_config.max_ai_calls_per_scan:
+            logger.warning(f"Max AI calls per scan reached ({self.ai_config.max_ai_calls_per_scan})")
+            return None
+        
+        # Check cache first
+        signal_data = self._format_signal_for_ai(signal, coin)
+        
+        if self.ai_config.cache_analysis:
+            cached = self._cache.get(signal_data)
+            if cached:
+                parsed = self._parse_ai_response(cached)
+                return AIAnalysisResult(
+                    signal_id=signal.id,
+                    ai_confidence=parsed["ai_confidence"],
+                    ai_reasoning=parsed["ai_reasoning"],
+                    market_context=parsed["market_context"],
+                    risk_assessment=parsed["risk_assessment"],
+                    key_levels=parsed["key_levels"],
+                    trade_recommendation=parsed["trade_recommendation"]
+                )
+        
+        # Prepare messages
+        messages = [
+            {"role": "system", "content": self.SYSTEM_PROMPT},
+            {"role": "user", "content": signal_data}
+        ]
+        
+        try:
+            # Make API call with timeout
+            response = await asyncio.wait_for(
+                self._client.chat(
+                    messages=messages,
+                    temperature=self.ai_config.ai_temperature,
+                    max_tokens=self.ai_config.ai_max_tokens
+                ),
+                timeout=self.ai_config.ai_timeout_seconds
+            )
+            
+            self._analysis_count += 1
+            
+            # Cache result
+            if self.ai_config.cache_analysis:
+                self._cache.set(signal_data, response)
+            
+            # Parse response
+            parsed = self._parse_ai_response(response)
+            
+            logger.info(f"AI analyzed {signal.symbol}: {parsed['trade_recommendation']} (confidence: {parsed['ai_confidence']}/10)")
+            
+            return AIAnalysisResult(
+                signal_id=signal.id,
+                ai_confidence=parsed["ai_confidence"],
+                ai_reasoning=parsed["ai_reasoning"],
+                market_context=parsed["market_context"],
+                risk_assessment=parsed["risk_assessment"],
+                key_levels=parsed["key_levels"],
+                trade_recommendation=parsed["trade_recommendation"]
+            )
+            
+        except asyncio.TimeoutError:
+            logger.error(f"AI request timeout for {signal.symbol}")
+            return None
+        except Exception as e:
+            logger.error(f"AI analysis error for {signal.symbol}: {e}")
+            return None
+    
+    async def analyze_signals_batch(self, signals: List[TradingSignal], coins: Dict[str, CoinData]) -> List[AIAnalysisResult]:
+        """Analyze multiple signals with AI"""
+        
+        if not self.is_available:
+            logger.warning("AI analysis not available")
+            return []
+        
+        results = []
+        
+        # Limit to max AI calls
+        signals_to_analyze = signals[:self.ai_config.max_ai_calls_per_scan]
+        
+        logger.info(f"Starting AI analysis for {len(signals_to_analyze)} signals...")
+        
+        for signal in signals_to_analyze:
+            coin = coins.get(signal.symbol)
+            result = await self.analyze_signal(signal, coin)
+            if result:
+                results.append(result)
+            
+            # Small delay to avoid rate limiting
+            await asyncio.sleep(0.5)
+        
+        return results
+    
+    def apply_ai_enhancements(self, signals: List[TradingSignal], ai_results: List[AIAnalysisResult]) -> List[TradingSignal]:
+        """Apply AI analysis results to trading signals"""
+        
+        # Create lookup for AI results
+        result_map = {r.signal_id: r for r in ai_results}
+        
+        enhanced_signals = []
+        
+        for signal in signals:
+            ai_result = result_map.get(signal.id)
+            
+            if ai_result:
+                # Enhance signal with AI analysis
+                # Combine original confidence with AI confidence (weighted average)
+                original_confidence = signal.confidence_score
+                ai_confidence = ai_result.ai_confidence
+                
+                # Weight: 40% original, 60% AI
+                enhanced_confidence = (original_confidence * 0.4) + (ai_confidence * 0.6)
+                signal.confidence_score = min(enhanced_confidence, 10.0)
+                
+                # Enhance reasoning
+                enhanced_reasoning = f"{signal.reasoning}\n\n🧠 AI Analysis: {ai_result.ai_reasoning}\n"
+                enhanced_reasoning += f"📊 Market Context: {ai_result.market_context}\n"
+                enhanced_reasoning += f"⚠️ Risk Assessment: {ai_result.risk_assessment}\n"
+                enhanced_reasoning += f"🎯 Recommendation: {ai_result.trade_recommendation}"
+                
+                signal.reasoning = enhanced_reasoning
+                
+                # Update key levels if available
+                if ai_result.key_levels:
+                    if "support" in ai_result.key_levels:
+                        # Could update signal with AI-identified levels
+                        pass
+                
+                # Mark as AI-enhanced
+                signal.score_breakdown["ai_enhanced"] = ai_result.ai_confidence
+            
+            enhanced_signals.append(signal)
+        
+        return enhanced_signals
+    
+    def reset_analysis_count(self):
+        """Reset the analysis count for a new scan"""
+        self._analysis_count = 0
+    
+    def clear_cache(self):
+        """Clear the AI cache"""
+        self._cache.clear()
+        logger.info("AI cache cleared")
+
+
+# ==================== AI SIGNAL GENERATOR ====================
+
+class AISignalGenerator:
+    """
+    Generate new trading signals using AI analysis of market data.
+    This goes beyond enhancing existing signals - it can identify opportunities
+    that the rule-based systems might miss.
+    """
+    
+    SYSTEM_PROMPT = """You are an expert crypto trading analyst AI. Your task is to analyze
+market data and identify high-probability trading opportunities.
+
+Analyze the provided market data and identify:
+1. Trend direction (BULLISH, BEARISH, NEUTRAL)
+2. Best entry zones
+3. Stop loss levels
+4. Take profit targets
+5. Risk/reward ratio
+
+Return your analysis as a structured signal if a high-confidence setup is found.
+Otherwise, return NO_SIGNAL.
+
+Output JSON format:
+{
+    "signal_found": true/false,
+    "direction": "LONG/SHORT",
+    "entry_min": <float>,
+    "entry_max": <float>,
+    "stop_loss": <float>,
+    "target_1": <float>,
+    "target_2": <float>,
+    "risk_reward": <float>,
+    "confidence": <float 0-10>,
+    "reasoning": "<explanation>",
+    "strategy_type": "<Trend Continuation|Bearish Short|Liquidity Sweep|Volatility Breakout>"
+}
+"""
+
+    def __init__(self):
+        self.config = get_config()
+        self.ai_config = self.config.ai
+        self._client = None
+        self._initialize_client()
+    
+    def _initialize_client(self):
+        """Initialize the AI client"""
+        provider = self.ai_config.provider.lower()
+        
+        if provider == "openai" and self.ai_config.openai_api_key:
+            self._client = OpenAIClient(
+                api_key=self.ai_config.openai_api_key,
+                model=self.ai_config.openai_model
+            )
+        elif provider == "anthropic" and self.ai_config.anthropic_api_key:
+            self._client = AnthropicClient(
+                api_key=self.ai_config.anthropic_api_key,
+                model=self.ai_config.anthropic_model
+            )
+        elif provider == "groq" and self.ai_config.groq_api_key:
+            self._client = GroqClient(
+                api_key=self.ai_config.groq_api_key,
+                model=self.ai_config.groq_model
+            )
+        elif provider == "ollama":
+            self._client = OllamaClient(
+                base_url=self.ai_config.ollama_base_url,
+                model=self.ai_config.ollama_model
+            )
+    
+    @property
+    def is_available(self) -> bool:
+        return (
+            self.ai_config.enable_ai_analysis and 
+            self._client is not None and 
+            self._client.is_available()
+        )
+    
+    def _format_market_data(self, coin: CoinData, btc_trend: TrendDirection, timeframe: str) -> str:
+        """Format coin market data for AI analysis"""
+        
+        candles = coin.candles.get(timeframe, [])
+        
+        # Get recent price data
+        recent_candles = candles[-10:] if len(candles) >= 10 else candles
+        
+        price_data = []
+        for c in recent_candles:
+            trend_emoji = "🟢" if c.is_bullish else "🔴"
+            price_data.append(f"{trend_emoji} O:${c.open:.4f} H:${c.high:.4f} L:${c.low:.4f} C:${c.close:.4f} V:{c.volume:.0f}")
+        
+        data_str = "\n".join(price_data)
+        
+        market_data = f"""
+CRYPTO MARKET ANALYSIS
+=====================
+
+SYMBOL: {coin.symbol} ({coin.name})
+CURRENT PRICE: ${coin.current_price:.4f}
+24H CHANGE: {coin.price_change_percent_24h:.2f}%
+
+TECHNICAL INDICATORS:
+- EMA20: ${coin.ema_20:.4f if coin.ema_20 else 'N/A'}
+- EMA50: ${coin.ema_50:.4f if coin.ema_50 else 'N/A'}
+- EMA100: ${coin.ema_100:.4f if coin.ema_100 else 'N/A'}
+- EMA200: ${coin.ema_200:.4f if coin.ema_200 else 'N/A'}
+- RSI (14): {coin.rsi:.1f if coin.rsi else 'N/A'}
+- ATR: {coin.atr:.4f if coin.atr else 'N/A'}
+
+BOLLINGER BANDS:
+- Upper: ${coin.bb_upper:.4f if coin.bb_upper else 'N/A'}
+- Middle: ${coin.bb_middle:.4f if coin.bb_middle else 'N/A'}
+- Lower: ${coin.bb_lower:.4f if coin.bb_lower else 'N/A'}
+
+TREND: {coin.trend.value}
+BTC TREND: {btc_trend.value}
+
+RECENT PRICE ACTION (last 10 candles):
+{data_str}
+
+Analyze this data and identify any high-probability trading opportunities.
+Return NO_SIGNAL if no clear setup exists.
+"""
+        return market_data
+    
+    async def generate_signal(self, coin: CoinData, btc_trend: TrendDirection, timeframe: str = "4h") -> Optional[TradingSignal]:
+        """Generate a trading signal using AI analysis"""
+        
+        if not self.is_available:
+            return None
+        
+        try:
+            messages = [
+                {"role": "system", "content": self.SYSTEM_PROMPT},
+                {"role": "user", "content": self._format_market_data(coin, btc_trend, timeframe)}
+            ]
+            
+            response = await asyncio.wait_for(
+                self._client.chat(
+                    messages=messages,
+                    temperature=0.3,
+                    max_tokens=800
+                ),
+                timeout=self.ai_config.ai_timeout_seconds
+            )
+            
+            # Parse response
+            import re
+            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            
+            if not json_match:
+                return None
+            
+            data = json.loads(json_match.group())
+            
+            if not data.get("signal_found", False):
+                return None
+            
+            # Create trading signal from AI response
+            direction = SignalDirection.LONG if data.get("direction") == "LONG" else SignalDirection.SHORT
+            
+            # Map strategy type
+            strategy_map = {
+                "Trend Continuation": "Trend Continuation",
+                "Bearish Short": "Bearish Trend Short",
+                "Liquidity Sweep": "Liquidity Sweep Reversal",
+                "Volatility Breakout": "Volatility Breakout"
+            }
+            strategy_type = data.get("strategy_type", "Trend Continuation")
+            
+            signal = TradingSignal(
+                symbol=coin.symbol,
+                name=coin.name,
+                direction=direction,
+                strategy_type=strategy_type,
+                timeframe=timeframe,
+                entry_zone_min=float(data.get("entry_min", 0)),
+                entry_zone_max=float(data.get("entry_max", 0)),
+                stop_loss=float(data.get("stop_loss", 0)),
+                target_1=float(data.get("target_1", 0)),
+                target_2=float(data.get("target_2", 0)),
+                risk_reward=float(data.get("risk_reward", 0)),
+                confidence_score=float(data.get("confidence", 5)),
+                current_price=coin.current_price,
+                btc_trend=btc_trend,
+                reasoning=f"🤖 AI GENERATED SIGNAL:\n{data.get('reasoning', '')}"
+            )
+            
+            logger.info(f"AI generated signal for {coin.symbol}: {direction.value} ({strategy_type})")
+            return signal
+            
+        except Exception as e:
+            logger.error(f"AI signal generation error for {coin.symbol}: {e}")
+            return None
