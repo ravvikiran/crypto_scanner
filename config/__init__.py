@@ -135,6 +135,17 @@ class LoggingConfig:
 
 
 @dataclass
+class LearningConfig:
+    """Learning System Configuration"""
+    enable_learning: bool = os.getenv("ENABLE_LEARNING", "true").lower() == "true"
+    check_interval_minutes: int = int(os.getenv("LEARNING_CHECK_INTERVAL_MINUTES", "15"))
+    signal_timeout_days: int = int(os.getenv("SIGNAL_TIMEOUT_DAYS", "7"))
+    min_signals_for_insights: int = int(os.getenv("MIN_SIGNALS_FOR_INSIGHTS", "20"))
+    notify_on_resolution: bool = os.getenv("NOTIFY_ON_RESOLUTION", "true").lower() == "true"
+    history_file: str = os.getenv("LEARNING_HISTORY_FILE", "data/learning_history.json")
+
+
+@dataclass
 class Config:
     """Main Configuration Container"""
     api: APIConfig = field(default_factory=APIConfig)
@@ -144,6 +155,7 @@ class Config:
     trading: TradingConfig = field(default_factory=TradingConfig)
     ai: AIConfig = field(default_factory=AIConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
+    learning: LearningConfig = field(default_factory=LearningConfig)
 
 
 # Global config instance

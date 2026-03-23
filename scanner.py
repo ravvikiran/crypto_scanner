@@ -21,6 +21,8 @@ from alerts import AlertManager
 from dashboard import Dashboard
 from storage import PerformanceTracker
 from ai import AISignalAnalyzer, AISignalGenerator
+from reasoning import HybridReasoner
+from learning import SignalTracker, AccuracyScorer, ResolutionChecker, LearningEngine
 
 
 class CryptoScanner:
@@ -42,6 +44,17 @@ class CryptoScanner:
         # Initialize AI modules
         self.ai_analyzer = AISignalAnalyzer()
         self.ai_generator = AISignalGenerator()
+        self.hybrid_reasoner = HybridReasoner()
+        
+        # Initialize Learning System (Phase 4)
+        self.signal_tracker = SignalTracker(self.config)
+        self.accuracy_scorer = AccuracyScorer(self.config)
+        self.resolution_checker = ResolutionChecker(
+            self.config,
+            self.signal_tracker,
+            self.accuracy_scorer
+        )
+        self.learning_engine = LearningEngine(self.config, self.accuracy_scorer)
         
         # Store coins for AI analysis
         self._coins_cache: Dict[str, CoinData] = {}
@@ -175,6 +188,37 @@ class CryptoScanner:
             else:
                 logger.info("AI analysis not available - skipping (configure AI in .env)")
             
+            # Step 9b: Hybrid Reasoning Enhancement (Phase 3)
+            if self.hybrid_reasoner.is_available and final_signals:
+                logger.info("=" * 50)
+                logger.info("🔄 Running Hybrid Reasoning...")
+                logger.info("=" * 50)
+                
+                # Build coins lookup dict if not already done
+                if 'coins_dict' not in locals():
+                    coins_dict = {c.symbol: c for c in coins}
+                
+                # Apply hybrid reasoning to each final signal
+                for i, signal in enumerate(final_signals):
+                    coin = coins_dict.get(signal.symbol)
+                    if coin:
+                        signal = await self.hybrid_reasoner.apply_hybrid_analysis(signal, coin)
+                        final_signals[i] = signal
+                
+                # Re-rank by updated confidence (may have been adjusted by AI)
+                final_signals = self.scorer.rank_signals(final_signals)
+            else:
+                logger.debug("Hybrid reasoning not available - using rule-based signals only")
+            
+            # Re-filter by minimum score
+            final_signals = [s for s in final_signals if s.confidence_score >= self.config.scanner.min_signal_score]
+            
+            # Keep top 3
+            final_signals = final_signals[:3]
+            
+            if self.hybrid_reasoner.is_available:
+                logger.info(f"Hybrid reasoning applied to {len(final_signals)} signals")
+            
             # Step 10: Optional AI Signal Generation
             if self.ai_generator.is_available and self.config.ai.enable_ai_analysis:
                 logger.info("=" * 50)
@@ -229,6 +273,9 @@ class CryptoScanner:
                     # Show AI badge in confidence if enhanced
                     if sig.score_breakdown.get("ai_enhanced"):
                         logger.info(f"   🧠 AI Enhanced: Yes (AI conf: {sig.score_breakdown.get('ai_enhanced'):.1f}/10)")
+                    # Show hybrid reasoning contribution if available
+                    if sig.ai_reasoning_contribution != 0:
+                        logger.info(f"   🔄 Hybrid: Base {sig.rule_based_confidence:.1f} → Final {sig.confidence_score:.1f} ({sig.ai_reasoning_contribution:+.1f})")
                     logger.info(f"   Reason: {sig.reasoning[:200]}...")
             
             # Calculate scan duration
@@ -253,6 +300,12 @@ class CryptoScanner:
                 btc_price,
                 market_regime
             )
+            
+            # Phase 4: Add signals to learning tracker
+            if self.config.learning.enable_learning and final_signals:
+                for signal in final_signals:
+                    self.signal_tracker.add_signal(signal)
+                    logger.debug(f"Added signal {signal.id} to learning tracker")
             
             # Update state
             self.last_scan_time = datetime.now()
@@ -324,6 +377,8 @@ class CryptoScanner:
         self.is_running = True
         
         interval = self.config.scanner.scan_interval_minutes * 60
+        learning_check_interval = self.config.learning.check_interval_minutes * 60
+        last_learning_check = 0
         
         logger.info(f"Starting continuous scan every {self.config.scanner.scan_interval_minutes} minutes")
         
@@ -334,6 +389,14 @@ class CryptoScanner:
                 if signals:
                     self.display_results(signals)
                     self.send_alerts(signals)
+                
+                # Periodic learning check
+                current_time = time.time()
+                if (self.config.learning.enable_learning and 
+                    current_time - last_learning_check >= learning_check_interval):
+                    logger.info("Running periodic learning check...")
+                    await self.run_learning_check()
+                    last_learning_check = current_time
                 
                 # Wait for next interval
                 await asyncio.sleep(interval)
@@ -363,6 +426,79 @@ class CryptoScanner:
                 "min_score": self.config.scanner.min_signal_score,
                 "max_coins": self.config.scanner.max_coins_to_scan
             }
+        }
+    
+    async def run_learning_check(self) -> dict:
+        """
+        Run resolution check and generate insights.
+        
+        This can be called periodically to:
+        - Check if any active signals have resolved
+        - Record outcomes
+        - Generate insights if enough data
+        
+        Returns:
+            Dictionary with check results
+        """
+        if not self.config.learning.enable_learning:
+            return {"enabled": False}
+        
+        logger.info("Running learning system check...")
+        
+        # Set market data collector if not set
+        if self.collector:
+            self.resolution_checker.set_market_data_collector(self.collector)
+        
+        # Check for resolved signals
+        resolved = await self.resolution_checker.check_all_signals()
+        
+        # Generate insights if enough data
+        insights_generated = []
+        if self.learning_engine.should_generate_insights():
+            insights_generated = self.learning_engine.generate_insights()
+            if insights_generated:
+                logger.info(f"Generated {len(insights_generated)} new insights")
+        
+        # Get current accuracy stats
+        accuracy_stats = self.learning_engine.get_accuracy_stats()
+        
+        result = {
+            "enabled": True,
+            "resolved_signals": len(resolved),
+            "insights_generated": len(insights_generated),
+            "total_resolved": accuracy_stats.get('total_resolved', 0),
+            "overall_win_rate": accuracy_stats.get('overall', 0),
+            "quality_score": accuracy_stats.get('quality_score', 0),
+            "active_signals": self.signal_tracker.get_count()
+        }
+        
+        logger.info(f"Learning check complete: {result}")
+        
+        return result
+    
+    def get_learning_stats(self) -> dict:
+        """
+        Get current learning system statistics.
+        
+        Returns:
+            Dictionary with learning metrics
+        """
+        if not self.config.learning.enable_learning:
+            return {"enabled": False}
+        
+        accuracy_stats = self.learning_engine.get_accuracy_stats()
+        recent_insights = self.learning_engine.get_insights(limit=5)
+        
+        return {
+            "enabled": True,
+            "active_signals": self.signal_tracker.get_count(),
+            "total_resolved": accuracy_stats.get('total_resolved', 0),
+            "overall_win_rate": round(accuracy_stats.get('overall', 0), 1),
+            "win_rate_by_strategy": accuracy_stats.get('by_strategy', {}),
+            "win_rate_by_timeframe": accuracy_stats.get('by_timeframe', {}),
+            "quality_score": accuracy_stats.get('quality_score', 0),
+            "recent_insights_count": len(recent_insights),
+            "insights_ready": self.learning_engine.should_generate_insights()
         }
 
 

@@ -167,6 +167,11 @@ class TradingSignal:
     btc_alignment: bool = False
     liquidity_sweep: bool = False
     
+    # Hybrid AI reasoning (Phase 3)
+    hybrid_reasoning: str = ""
+    ai_reasoning_contribution: float = 0.0
+    rule_based_confidence: float = 0.0
+    
     # Market context
     btc_trend: TrendDirection = TrendDirection.NEUTRAL
     current_price: float = 0
@@ -256,3 +261,57 @@ class MarketSummary:
     
     market_regime: str = "NEUTRAL"  # BULL, BEAR, NEUTRAL, VOLATILE
     scan_duration_seconds: float = 0
+
+
+class SignalResolution(Enum):
+    """Signal resolution types"""
+    TARGET_1_HIT = "TARGET_1_HIT"
+    TARGET_2_HIT = "TARGET_2_HIT"
+    STOP_LOSS_HIT = "STOP_LOSS_HIT"
+    EXPIRED = "EXPIRED"
+
+
+@dataclass
+class SignalOutcome:
+    """Outcome of a resolved trading signal for learning purposes"""
+    signal_id: str = ""
+    symbol: str = ""
+    strategy_type: StrategyType = StrategyType.NONE
+    timeframe: str = ""
+    direction: SignalDirection = SignalDirection.NEUTRAL
+    
+    # Resolution details
+    resolution: SignalResolution = SignalResolution.EXPIRED
+    pnl_percent: float = 0
+    duration_hours: float = 0
+    
+    # Prices
+    entry_price: float = 0
+    stop_loss: float = 0
+    target_1: float = 0
+    target_2: float = 0
+    price_at_resolution: float = 0
+    
+    # Metadata
+    timestamp: datetime = field(default_factory=datetime.now)
+    confidence_score: float = 0
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary"""
+        return {
+            "signal_id": self.signal_id,
+            "symbol": self.symbol,
+            "strategy_type": self.strategy_type.value,
+            "timeframe": self.timeframe,
+            "direction": self.direction.value,
+            "resolution": self.resolution.value,
+            "pnl_percent": self.pnl_percent,
+            "duration_hours": self.duration_hours,
+            "entry_price": self.entry_price,
+            "stop_loss": self.stop_loss,
+            "target_1": self.target_1,
+            "target_2": self.target_2,
+            "price_at_resolution": self.price_at_resolution,
+            "timestamp": self.timestamp.isoformat(),
+            "confidence_score": self.confidence_score
+        }

@@ -91,6 +91,26 @@ class PerformanceTracker:
                 )
             """)
             
+            # Create signal_outcomes table for learning system
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS signal_outcomes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    signal_id TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    strategy_type TEXT,
+                    timeframe TEXT,
+                    direction TEXT,
+                    entry_price REAL,
+                    resolution TEXT,
+                    exit_price REAL,
+                    pnl_percent REAL,
+                    duration_hours REAL,
+                    expected_correct BOOLEAN,
+                    resolved_at TEXT,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
             conn.commit()
             conn.close()
             

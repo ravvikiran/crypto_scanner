@@ -117,3 +117,33 @@ class SignalScorer:
         """Filter signals that meet minimum threshold"""
         qualified = [s for s in signals if self.is_qualified(s)]
         return self.rank_signals(qualified)
+    
+    def apply_ai_adjustment(self, signal: TradingSignal, ai_adjustment: float) -> TradingSignal:
+        """
+        Apply AI confidence adjustment to a signal.
+        
+        Args:
+            signal: The trading signal to adjust
+            ai_adjustment: The AI adjustment value (typically -2 to +2)
+            
+        Returns:
+            Signal with adjusted confidence score
+        """
+        # Store original rule-based confidence
+        signal.rule_based_confidence = signal.confidence_score
+        
+        # Apply AI adjustment
+        signal.ai_reasoning_contribution = ai_adjustment
+        
+        # Calculate new confidence (clamped between 0 and 10)
+        new_confidence = signal.confidence_score + ai_adjustment
+        signal.confidence_score = max(0.0, min(10.0, new_confidence))
+        
+        logger.debug(
+            f"Applied AI adjustment to {signal.symbol}: "
+            f"base={signal.rule_based_confidence:.1f}, "
+            f"adjustment={ai_adjustment:+.1f}, "
+            f"final={signal.confidence_score:.1f}"
+        )
+        
+        return signal

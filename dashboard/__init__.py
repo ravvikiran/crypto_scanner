@@ -130,6 +130,50 @@ Top Bullish:   {', '.join(summary.top_coins_bullish[:5]) if summary.top_coins_bu
 Top Bearish:   {', '.join(summary.top_coins_bearish[:5]) if summary.top_coins_bearish else 'N/A'}
 """)
     
+    def print_learning_stats(self, stats: dict):
+        """
+        Print learning system statistics.
+        
+        Args:
+            stats: Dictionary with learning metrics from scanner.get_learning_stats()
+        """
+        if not stats.get('enabled', False):
+            return
+        
+        print("\n" + "=" * 60)
+        print("🧠 LEARNING SYSTEM STATS")
+        print("=" * 60)
+        
+        print(f"""
+📊 Accuracy Metrics
+  Active Signals:    {stats.get('active_signals', 0)}
+  Resolved Signals:  {stats.get('total_resolved', 0)}
+  Overall Win Rate:   {stats.get('overall_win_rate', 0)}%
+  Quality Score:     {stats.get('quality_score', 0):.1f}/10
+
+📈 Win Rate by Strategy:""")
+        
+        by_strategy = stats.get('win_rate_by_strategy', {})
+        if by_strategy:
+            for strategy, win_rate in sorted(by_strategy.items(), key=lambda x: x[1], reverse=True):
+                print(f"    {strategy}: {win_rate:.1f}%")
+        else:
+            print("    No data yet")
+        
+        print("\n⏱️ Win Rate by Timeframe:")
+        
+        by_timeframe = stats.get('win_rate_by_timeframe', {})
+        if by_timeframe:
+            for timeframe, win_rate in sorted(by_timeframe.items(), key=lambda x: x[1], reverse=True):
+                print(f"    {timeframe}: {win_rate:.1f}%")
+        else:
+            print("    No data yet")
+        
+        print(f"""
+💡 Insights: {stats.get('recent_insights_count', 0)} stored
+   Ready to generate: {'Yes' if stats.get('insights_ready', False) else 'No (need more data)'}
+""")
+    
     def print_scanner_status(self, is_running: bool, last_scan: Optional[datetime] = None):
         """Print scanner status"""
         
