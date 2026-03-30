@@ -1,0 +1,67 @@
+# Crypto Scanner Configuration
+# This file provides default configuration values
+
+# Logging Configuration
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "logs/scanner.log"
+
+# Scanner Configuration
+scanner:
+  scan_interval_minutes: 5
+  max_coins_to_scan: 500
+  min_market_cap_millions: 10
+  min_volume_24h_millions: 1
+  min_signal_score: 7.0
+  timeframes: ["4h", "daily"]
+
+# Scheduler Configuration
+scheduler:
+  timezone: "Asia/Kolkata"
+
+  # Run daily at 3:00 PM IST (single scan per day)
+  scan_time_hour: 15
+  scan_time_minute: 0
+
+  run_days: [1, 2, 3, 4, 5]  # Monday to Friday
+
+  # Market hours (for crypto, you might adjust these)
+  market_open_hour: 9
+  market_open_minute: 15
+  market_close_hour: 15
+  market_close_minute: 30
+
+# Signal Intelligence Engine (SIE)
+signal_intelligence:
+  enabled: true
+  monitoring:
+    check_interval_minutes: 15
+
+# Learning System
+learning:
+  enabled: true
+  check_interval_minutes: 15
+  signal_timeout_days: 7
+  min_signals_for_insights: 20
+  notify_on_resolution: true
+
+# Alert Configuration
+alerts:
+  telegram:
+    enabled: false
+    bot_token: ""
+    chat_id: ""
+  
+  discord:
+    enabled: false
+    webhook_url: ""
+  
+  email:
+    enabled: false
+    smtp_server: "smtp.gmail.com"
+    smtp_port: 587
+    username: ""
+    password: ""
+    from: ""
+    to: ""

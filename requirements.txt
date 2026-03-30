@@ -8,6 +8,7 @@ asyncio>=3.4.3
 pandas>=2.1.4
 numpy>=1.26.2
 python-dotenv>=1.0.0
+pyyaml>=6.0
 requests>=2.31.0
 ta-lib>=0.4.28
 telebot>=6.0.0

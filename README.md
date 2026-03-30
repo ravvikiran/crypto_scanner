@@ -103,6 +103,21 @@ python main.py stats
 python main.py test
 ```
 
+### ⏰ Scheduled Scanner Mode
+
+Run the scanner with a scheduler that runs daily at a specific time:
+
+```bash
+# Run with scheduler (daily at 3 PM IST Mon-Fri)
+python main.py --schedule
+```
+
+The scheduler will:
+- Run daily scans at 3:00 PM IST (Asia/Kolkata timezone)
+- Run on weekdays only (Monday to Friday)
+- Send Telegram alerts when signals are generated
+- Monitor signal resolution in the background
+
 ## Configuration
 
 ### Scanner Settings
