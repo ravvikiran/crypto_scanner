@@ -3,7 +3,7 @@ Strategy Engines
 Implements all four trading strategy engines.
 """
 
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict
 from loguru import logger
 
 from models import (
@@ -12,6 +12,21 @@ from models import (
 )
 from config import get_config
 from indicators import IndicatorEngine
+
+# Import Multi-Timeframe Engine
+from .mtf_engine import (
+    MultiTimeframeEngine,
+    TradeValidatorEngine,
+    StructureDetector,
+    EMAAlignmentChecker,
+    PullbackDetector,
+    VolumeAnalyzer,
+    BreakoutDetector,
+    MarketStructure,
+    EMAAlignment,
+    ValidationResult,
+    MultiTimeframeData
+)
 
 
 class TrendContinuationEngine:
@@ -463,6 +478,10 @@ class StrategyEngine:
         self.bearish_engine = BearishTrendEngine()
         self.liquidity_engine = LiquiditySweepEngine()
         self.volatility_engine = VolatilityBreakoutEngine()
+        
+        # Multi-Timeframe Engine (new)
+        self.mtf_engine = MultiTimeframeEngine()
+        self.trade_validator = TradeValidatorEngine()
     
     def scan_all_strategies(
         self,
@@ -491,3 +510,38 @@ class StrategyEngine:
                 logger.debug(f"Strategy engine error: {e}")
         
         return signals
+    
+    def scan_mtf_strategies(
+        self,
+        coin: CoinData
+    ) -> List[TradingSignal]:
+        """
+        Run Multi-Timeframe strategy on a coin.
+        Requires multi-timeframe data (daily, 1h, 15m) to be available.
+        Returns list of valid signals (may be empty if conditions not met).
+        
+        Note: Data validation is handled internally by MultiTimeframeEngine.analyze()
+        """
+        signals = []
+        
+        try:
+            # Run MTF analysis - validation of required timeframes is done internally
+            result = self.trade_validator.validate(coin)
+            
+            if result.is_valid and result.signal:
+                signals.append(result.signal)
+                logger.info(f"{coin.symbol}: MTF signal generated - {result.signal.direction.value}")
+            else:
+                logger.debug(f"{coin.symbol}: MTF validation failed - {result.rejection_reason}")
+        
+        except Exception as e:
+            logger.error(f"MTF strategy error for {coin.symbol}: {e}")
+        
+        return signals
+    
+    def get_rejection_summary(
+        self,
+        coins: List[CoinData]
+    ) -> Dict[str, int]:
+        """Get summary of MTF rejection reasons for a list of coins"""
+        return self.trade_validator.get_rejection_summary(coins)

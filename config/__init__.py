@@ -51,6 +51,11 @@ class ScannerConfig:
     min_volume_24h_millions: float = float(os.getenv("MIN_VOLUME_24H_MILLIONS", "1"))
     min_signal_score: float = float(os.getenv("MIN_SIGNAL_SCORE", "7.0"))
     timeframes: List[str] = field(default_factory=lambda: os.getenv("TIMEFRAMES", "4h,daily").split(","))
+    
+    # Multi-timeframe configuration for enhanced strategy
+    mtf_timeframes: List[str] = field(default_factory=lambda: ["daily", "1h", "15m"])
+    enable_mtf_strategy: bool = True
+    mtf_min_confidence: float = 7.0
 
 
 @dataclass

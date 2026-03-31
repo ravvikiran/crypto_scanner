@@ -106,6 +106,58 @@ class CryptoScanner:
             logger.info(f"Fetching candles for {len(coins)} coins...")
             coins = await self._fetch_candles(coins)
             
+            # Step 3b: Fetch multi-timeframe data for MTF strategy (if enabled)
+            mtf_signals = []
+            if getattr(self.config.scanner, 'enable_mtf_strategy', True):
+                mtf_tfs = getattr(self.config.scanner, 'mtf_timeframes', ['daily', '1h', '15m'])
+                mtf_min_confidence = getattr(self.config.scanner, 'mtf_min_confidence', 7.0)
+                logger.info(f"Fetching MTF data for: {mtf_tfs}...")
+                
+                # Fetch additional timeframes for MTF strategy with proper async context
+                async with MarketDataCollector() as mtf_collector:
+                    # Update coins with MTF data - fetch with rate limiting
+                    fetch_tasks = []
+                    for coin in coins:
+                        for tf in mtf_tfs:
+                            if tf not in coin.candles or len(coin.candles.get(tf, [])) < 50:
+                                fetch_tasks.append((coin, tf, mtf_collector.get_candles(coin.symbol, tf)))
+                    
+                    # Execute fetches with rate limiting (max 15 concurrent)
+                    if fetch_tasks:
+                        logger.info(f"Fetching {len(fetch_tasks)} MTF data points with rate limiting...")
+                        semaphore = asyncio.Semaphore(15)
+                        
+                        async def bounded_fetch(coro):
+                            async with semaphore:
+                                return await coro
+                        
+                        bounded_tasks = [bounded_fetch(task[2]) for task in fetch_tasks]
+                        results = await asyncio.gather(*bounded_tasks, return_exceptions=True)
+                        
+                        for i, (coin, tf, _) in enumerate(fetch_tasks):
+                            result = results[i]
+                            if isinstance(result, Exception):
+                                logger.warning(f"Failed to fetch {coin.symbol} {tf}: {result}")
+                            elif result:
+                                coin.candles[tf] = result
+                
+                # Run MTF strategy on each coin
+                logger.info("Running Multi-Timeframe Strategy Engine...")
+                for coin in coins:
+                    mtf_results = self.strategy_engine.scan_mtf_strategies(coin)
+                    for signal in mtf_results:
+                        # Filter by MTF confidence threshold
+                        if signal.confidence_score < mtf_min_confidence:
+                            logger.debug(f"{signal.symbol}: MTF signal below confidence threshold ({signal.confidence_score:.1f} < {mtf_min_confidence})")
+                            continue
+                        
+                        # Score and enrich MTF signals
+                        signal = self.scorer.enrich_with_btc_alignment(signal, btc_trend)
+                        signal = self.scorer.score_signal(signal)
+                        mtf_signals.append(signal)
+                
+                logger.info(f"MTF Strategy: {len(mtf_signals)} signals generated")
+            
             # Step 4: Calculate indicators and run strategies
             logger.info("Running strategy engines...")
             
@@ -136,6 +188,11 @@ class CryptoScanner:
                         signal = self.scorer.enrich_with_btc_alignment(signal, btc_trend)
                         signal = self.scorer.score_signal(signal)
                         all_signals.append(signal)
+            
+            # Step 3c: Merge MTF signals with all signals
+            if mtf_signals:
+                all_signals.extend(mtf_signals)
+                logger.info(f"Combined signals: {len(all_signals)} (including {len(mtf_signals)} MTF)")
             
             # Step 5: Filter signals by BTC trend
             all_signals = self.btc_filter.filter_signals_by_btc(all_signals, btc_trend)

@@ -15,6 +15,11 @@ scanner:
   min_volume_24h_millions: 1
   min_signal_score: 7.0
   timeframes: ["4h", "daily"]
+  
+  # Multi-Timeframe Strategy Configuration
+  enable_mtf_strategy: true
+  mtf_timeframes: ["daily", "1h", "15m"]
+  mtf_min_confidence: 7.0
 
 # Scheduler Configuration
 scheduler:
