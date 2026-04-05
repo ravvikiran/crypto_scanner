@@ -176,6 +176,12 @@ class TradingSignal:
     btc_trend: TrendDirection = TrendDirection.NEUTRAL
     current_price: float = 0
     
+    # Accumulation/Breakout fields
+    range_low: float = 0
+    range_high: float = 0
+    near_breakout: bool = False
+    breakout_distance_pct: float = 0
+    
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary"""
         return {

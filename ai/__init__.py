@@ -163,6 +163,54 @@ class GroqClient(AIClient):
             return f"Error: {str(e)}"
 
 
+class GeminiClient(AIClient):
+    """Google Gemini client using new google.genai SDK"""
+    
+    def __init__(self, api_key: str, model: str = "gemini-2.0-flash"):
+        self.api_key = api_key
+        self.model = model
+        self._client = None
+    
+    def _get_client(self):
+        if self._client is None:
+            try:
+                from google.genai import Client
+                self._client = Client(api_key=self.api_key)
+            except ImportError:
+                logger.error("google.genai package not installed. Run: pip install google-genai")
+                return None
+        return self._client
+    
+    def is_available(self) -> bool:
+        return bool(self.api_key)
+    
+    async def chat(self, messages: List[Dict[str, str]], temperature: float = 0.2, max_tokens: int = 1000) -> str:
+        client = self._get_client()
+        if not client:
+            return "Error: Gemini client not available"
+        
+        try:
+            contents = []
+            for msg in messages:
+                if msg["role"] == "system":
+                    contents.append({"role": "user", "parts": [{"text": msg["content"]}]})
+                else:
+                    contents.append({"role": msg["role"], "parts": [{"text": msg["content"]}]})
+            
+            response = client.models.generate(
+                model=self.model,
+                contents=contents,
+                config={
+                    "temperature": temperature,
+                    "max_output_tokens": max_tokens
+                }
+            )
+            return response.text
+        except Exception as e:
+            logger.error(f"Gemini API error: {e}")
+            return f"Error: {str(e)}"
+
+
 class OllamaClient(AIClient):
     """Ollama local LLM client"""
     
@@ -206,7 +254,7 @@ class OllamaClient(AIClient):
                     else:
                         return f"Error: Ollama API returned status {response.status}"
         except Exception as e:
-            logger.error(f"Ollama API error: {e}")
+            logger.debug(f"Cannot connect to Ollama at {self.base_url}: {e}")
             return f"Error: {str(e)}"
 
 
@@ -279,6 +327,14 @@ class AIProviderManager:
                 model=self.config.groq_model
             )
             logger.info("Registered Groq provider")
+        
+        # Gemini
+        if self.config.gemini_api_key:
+            self._providers["gemini"] = GeminiClient(
+                api_key=self.config.gemini_api_key,
+                model=self.config.gemini_model
+            )
+            logger.info("Registered Gemini provider")
         
         # Ollama
         if self.config.ollama_base_url:

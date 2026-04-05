@@ -99,9 +99,9 @@ class AIConfig:
     
     # AI Provider priority order (comma-separated) - used for automatic fallback
     # When primary provider fails (rate limit, quota exceeded), system will try next provider
-    # Options: openai, anthropic, groq, ollama
-    # Example: AI_PROVIDER_PRIORITY=groq,anthropic,openai,ollama
-    provider_priority: str = os.getenv("AI_PROVIDER_PRIORITY", "openai,anthropic,groq,ollama")
+    # Options: openai, anthropic, groq, gemini, ollama
+    # Example: AI_PROVIDER_PRIORITY=groq,anthropic,openai,gemini,ollama
+    provider_priority: str = os.getenv("AI_PROVIDER_PRIORITY", "openai,anthropic,groq,gemini,ollama")
     
     # Enable automatic fallback to next provider on failure
     enable_fallback: bool = os.getenv("ENABLE_AI_FALLBACK", "true").lower() == "true"
@@ -110,12 +110,14 @@ class AIConfig:
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
     anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY", "")
     groq_api_key: str = os.getenv("GROQ_API_KEY", "")
+    gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
     ollama_base_url: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     
     # Model settings
     openai_model: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     anthropic_model: str = os.getenv("ANTHROPIC_MODEL", "claude-3-haiku-20240307")
     groq_model: str = os.getenv("GROQ_MODEL", "llama-3.1-70b-versatile")
+    gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
     ollama_model: str = os.getenv("OLLAMA_MODEL", "llama3")
     
     # AI Analysis settings
