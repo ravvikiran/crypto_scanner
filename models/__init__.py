@@ -203,32 +203,67 @@ class TradingSignal:
     
     def to_alert_string(self) -> str:
         """Format as alert message"""
-        emoji = "🟢" if self.direction == SignalDirection.LONG else "🔴"
+        direction_emoji = "🟢" if self.direction == SignalDirection.LONG else "🔴"
         strategy = self.strategy_type.value
         
-        return f"""
-{emoji} {self.direction.value} SETUP DETECTED
+        risk_level = self._get_risk_level()
+        
+        rr = f"1:{self.risk_reward:.1f}"
+        
+        message = f"""
+{direction_emoji} <b>{self.direction.value} SETUP DETECTED</b>
 
-Coin: {self.symbol} ({self.name})
+<b>{self.symbol}</b> ({self.name})
 Strategy: {strategy}
 Timeframe: {self.timeframe}
 Confidence: {self.confidence_score:.1f}/10
 
-📊 Entry Zone
-{self.entry_zone_min:.2f} - {self.entry_zone_max:.2f}
+💰 <b>Entry Zone</b>
+{self.entry_zone_min:.4f} - {self.entry_zone_max:.4f}
 
-🛡️ Stop Loss
-{self.stop_loss:.2f}
+🛡️ <b>Stop Loss</b>
+{self.stop_loss:.4f}
 
-🎯 Targets
-T1: {self.target_1:.2f}
-T2: {self.target_2:.2f}
+🎯 <b>Targets</b>
+T1: {self.target_1:.4f}
+T2: {self.target_2:.4f}
 
-📈 Risk/Reward
-1:{self.risk_reward:.1f}
+📈 <b>Risk/Reward</b>
+{rr}
 
-Reasoning: {self.reasoning}
+⚠️ <b>Risk Level</b>
+{risk_level}
 """
+        
+        if self.range_high > 0 or self.range_low > 0:
+            message += f"""
+📊 <b>Trading Range</b>
+Low: {self.range_low:.4f}
+High: {self.range_high:.4f}
+"""
+        
+        if self.near_breakout:
+            message += f"""
+🚀 <b>Near Breakout</b>
+Distance: {self.breakout_distance_pct:.1f}%
+"""
+        
+        if self.reasoning:
+            message += f"""
+📝 <b>Reasoning</b>
+{self.reasoning[:400]}
+"""
+        
+        return message
+    
+    def _get_risk_level(self) -> str:
+        """Determine risk level"""
+        if self.confidence_score >= 8 and self.risk_reward >= 2:
+            return "🟢 LOW"
+        elif self.confidence_score >= 6 and self.risk_reward >= 1.5:
+            return "🟡 MEDIUM"
+        else:
+            return "🔴 HIGH"
 
 
 @dataclass

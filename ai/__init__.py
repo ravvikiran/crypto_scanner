@@ -211,6 +211,77 @@ class GeminiClient(AIClient):
             return f"Error: {str(e)}"
 
 
+class MiniMaxClient(AIClient):
+    """MiniMax client (free tier available)"""
+    
+    def __init__(self, api_key: str, model: str = "abab6.5s-chat"):
+        self.api_key = api_key
+        self.model = model
+        self._client = None
+        self.base_url = "https://api.minimax.chat/v1"
+    
+    def _get_client(self):
+        if self._client is None:
+            try:
+                import aiohttp
+                self._client = aiohttp
+            except ImportError:
+                logger.error("aiohttp package not installed")
+                return None
+        return self._client
+    
+    def is_available(self) -> bool:
+        return bool(self.api_key)
+    
+    async def chat(self, messages: List[Dict[str, str]], temperature: float = 0.2, max_tokens: int = 1000) -> str:
+        client = self._get_client()
+        if not client:
+            return "Error: MiniMax client not available"
+        
+        try:
+            import aiohttp
+            
+            system_message = ""
+            user_message = ""
+            for msg in messages:
+                if msg["role"] == "system":
+                    system_message = msg["content"]
+                else:
+                    user_message = msg["content"]
+            
+            payload = {
+                "model": self.model,
+                "messages": [
+                    {"role": "system", "content": system_message},
+                    {"role": "user", "content": user_message}
+                ],
+                "temperature": temperature,
+                "max_tokens": max_tokens
+            }
+            
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json"
+            }
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{self.base_url}/text/chatcompletion_v2",
+                    json=payload,
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=60)
+                ) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                    else:
+                        error_text = await response.text()
+                        return f"Error: MiniMax API returned status {response.status}: {error_text}"
+        except Exception as e:
+            logger.error(f"MiniMax API error: {e}")
+            return f"Error: {str(e)}"
+
+
 class OllamaClient(AIClient):
     """Ollama local LLM client"""
     
@@ -335,6 +406,14 @@ class AIProviderManager:
                 model=self.config.gemini_model
             )
             logger.info("Registered Gemini provider")
+        
+        # MiniMax
+        if self.config.minimax_api_key:
+            self._providers["minimax"] = MiniMaxClient(
+                api_key=self.config.minimax_api_key,
+                model=self.config.minimax_model
+            )
+            logger.info("Registered MiniMax provider")
         
         # Ollama
         if self.config.ollama_base_url:

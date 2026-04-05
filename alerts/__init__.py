@@ -12,6 +12,7 @@ from loguru import logger
 
 from models import TradingSignal, SignalDirection, StrategyType
 from config import get_config
+from alerts.telegram_bot import SignalDuplicateChecker
 
 
 class AlertManager:
@@ -20,6 +21,7 @@ class AlertManager:
     def __init__(self):
         self.config = get_config()
         self.alerts = self.config.alerts
+        self._duplicate_checker = SignalDuplicateChecker(cooldown_hours=24)
     
     def send_all_alerts(self, signals: List[TradingSignal]):
         """Send alerts through all configured channels"""
@@ -27,17 +29,27 @@ class AlertManager:
         if not signals:
             return
         
-        message = self._format_signals_message(signals)
+        signals_to_send = []
+        for signal in signals:
+            if self._duplicate_checker.should_send(signal.symbol):
+                signals_to_send.append(signal)
+                self._duplicate_checker.mark_sent(signal.symbol)
+        
+        if not signals_to_send:
+            logger.info("All signals in cooldown - skipping alerts")
+            return
+        
+        message = self._format_signals_message(signals_to_send)
         
         # Send to each channel
         if self.alerts.telegram_bot_token and self.alerts.telegram_chat_id:
             self._send_telegram(message)
         
         if self.alerts.discord_webhook_url:
-            self._send_discord(message, signals)
+            self._send_discord(message, signals_to_send)
         
         if self.alerts.smtp_username and self.alerts.email_to:
-            self._send_email(signals)
+            self._send_email(signals_to_send)
     
     def _format_signals_message(self, signals: List[TradingSignal]) -> str:
         """Format signals into alert message"""
