@@ -5,6 +5,7 @@ Sends notifications via Telegram, Discord, Email, and generates TradingView aler
 
 import smtplib
 import requests
+from datetime import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import List, Optional
@@ -22,34 +23,87 @@ class AlertManager:
         self.config = get_config()
         self.alerts = self.config.alerts
         self._duplicate_checker = SignalDuplicateChecker(cooldown_hours=24)
+        self._last_no_signals_message: Optional[datetime] = None
     
     def send_all_alerts(self, signals: List[TradingSignal]):
         """Send alerts through all configured channels"""
         
-        if not signals:
+        # Filter signals by minimum confidence threshold (>=6.0)
+        qualified_signals = [s for s in signals if s.confidence_score >= 6.0]
+        
+        if not qualified_signals:
+            self._send_no_signals_message()
             return
         
         signals_to_send = []
-        for signal in signals:
-            if self._duplicate_checker.should_send(signal.symbol):
+        for signal in qualified_signals:
+            if self._duplicate_checker.should_send(signal.id):
                 signals_to_send.append(signal)
-                self._duplicate_checker.mark_sent(signal.symbol)
+                self._duplicate_checker.mark_sent(signal.id)
         
         if not signals_to_send:
             logger.info("All signals in cooldown - skipping alerts")
             return
         
-        message = self._format_signals_message(signals_to_send)
-        
-        # Send to each channel
-        if self.alerts.telegram_bot_token and self.alerts.telegram_chat_id:
+        # Send individual signal alerts (no summary)
+        for signal in signals_to_send:
+            message = signal.to_alert_string()
             self._send_telegram(message)
+            self._send_discord_single(signal)
+            self._send_email([signal])
+    
+    def _send_no_signals_message(self):
+        """Send message when no signals meet confidence threshold"""
+        now = datetime.now()
         
-        if self.alerts.discord_webhook_url:
-            self._send_discord(message, signals_to_send)
+        # Only send once every 24 hours
+        if self._last_no_signals_message:
+            if (now - self._last_no_signals_message).total_seconds() < 86400:
+                return
         
-        if self.alerts.smtp_username and self.alerts.email_to:
-            self._send_email(signals_to_send)
+        self._last_no_signals_message = now
+        
+        message = "📊 No coins met confidence threshold (≥6.0) this scan."
+        self._send_telegram(message)
+    
+    def _send_discord_single(self, signal: TradingSignal):
+        """Send single signal via Discord webhook"""
+        if not self.alerts.discord_webhook_url:
+            return
+        
+        try:
+            color = 0x00FF00 if signal.direction.value == "LONG" else 0xFF0000
+            
+            embed = {
+                "title": f"{signal.direction.value} - {signal.symbol}",
+                "description": signal.reasoning,
+                "color": color,
+                "fields": [
+                    {"name": "Entry Zone", "value": f"{signal.entry_zone_min:.2f} - {signal.entry_zone_max:.2f}", "inline": True},
+                    {"name": "Stop Loss", "value": f"{signal.stop_loss:.2f}", "inline": True},
+                    {"name": "Target 1", "value": f"{signal.target_1:.2f}", "inline": True},
+                    {"name": "Strategy", "value": signal.strategy_type.value, "inline": True},
+                    {"name": "Timeframe", "value": signal.timeframe, "inline": True},
+                    {"name": "Confidence", "value": f"{signal.confidence_score:.1f}/10", "inline": True}
+                ],
+                "footer": {"text": f"Risk/Reward: 1:{signal.risk_reward:.1f}"}
+            }
+            
+            data = {"content": "", "embeds": [embed]}
+            
+            response = requests.post(
+                self.alerts.discord_webhook_url,
+                json=data,
+                timeout=10
+            )
+            
+            if response.status_code in [200, 204]:
+                logger.info(f"Discord alert sent for {signal.symbol}")
+            else:
+                logger.error(f"Discord alert failed: {response.status_code}")
+                
+        except Exception as e:
+            logger.error(f"Error sending Discord alert: {e}")
     
     def _format_signals_message(self, signals: List[TradingSignal]) -> str:
         """Format signals into alert message"""
@@ -83,8 +137,13 @@ class AlertManager:
     def _send_telegram(self, message: str):
         """Send message via Telegram bot"""
         try:
-            # Check if chat_id is a username (starts with @)
-            chat_id = self.alerts.telegram_chat_id
+            # Use channel_chat_id if configured, otherwise fall back to personal chat_id
+            chat_id = self.alerts.telegram_channel_chat_id or self.alerts.telegram_chat_id
+            
+            if not chat_id:
+                logger.warning("Telegram: No chat_id configured")
+                return
+            
             if chat_id and chat_id.startswith('@'):
                 logger.warning(f"Telegram: Using username '{chat_id}'. For better reliability, get numeric chat ID from @userinfobot bot")
             

@@ -1,6 +1,24 @@
-# Crypto Momentum & Reversal AI Scanner
+# Crypto Momentum & Reversal AI Scanner (Enhanced)
 
-An AI-driven crypto market scanner that continuously analyzes the **top 500 cryptocurrencies** and identifies high-probability trading setups based on trend structure, volume confirmation, and volatility expansion. Now with **real AI/LLM integration** for intelligent signal analysis and generation.
+An **AI-first** self-improving crypto market scanner that adapts to market conditions and learns from trading performance. Continuously analyzes the **top 150 cryptocurrencies** and identifies high-probability trading setups.
+
+## What's New in v2.0 (Enhanced Version)
+
+### 🚀 AI-First Architecture
+
+- **AI as Primary Decision Maker** - Signals generated and validated by AI
+- **Rule-based Logic as Fallback** - Used when AI is unavailable
+- **Journal-Aware Decisions** - AI references trade history before making decisions
+- **APPROVE/REJECT/MODIFY** - AI decides whether to execute, reject, or modify signals
+
+### 📊 New Engine Modules
+
+- **Market Regime Engine** - Detects TRENDING, RANGING, HIGH_VOL, LOW_VOL
+- **Coin Filter Engine** - Filters top 150 by volume/momentum/strength vs BTC
+- **Confluence Engine** - Multi-signal scoring (0-10) with 6 factors
+- **Position Sizer** - Dynamic position sizing based on confidence
+- **Optimization Engine** - Auto-optimizes strategies based on win rate
+- **Trade Journal** - Tracks all trades for continuous learning
 
 ## Features
 
@@ -10,49 +28,39 @@ An AI-driven crypto market scanner that continuously analyzes the **top 500 cryp
 - **Bearish Trend Short** - Short setups in downtrends
 - **Liquidity Sweep Reversal** - Detects fake breakouts
 - **Volatility Breakout** - Captures explosive moves from compression
+- **Multi-Timeframe Strategy** - Daily/1h/15m alignment
 
-### 🧠 AI/LLM Integration
+### 🧠 AI/LLM Integration (AI-First)
 
-The scanner now uses AI to enhance trading signals:
+The scanner uses AI as the **primary decision maker**:
 
-- **AI Signal Analysis** - Each signal is analyzed by an LLM to:
-  - Validate the trading setup
-  - Provide enhanced reasoning and market context
-  - Assess risk factors
-  - Generate actionable recommendations
-  - Identify key support/resistance levels
+- **AI Signal Analysis** - Each signal is validated by AI
+- **Journal-Aware** - References past trades before deciding
+- **APPROVE/REJECT/MODIFY** - Explicit AI decisions
+- **Fallback Mode** - Rule-based with 50% size reduction when AI fails
 
-- **AI Signal Generation** - The AI can also generate its own signals by:
-  - Analyzing market data independently
-  - Identifying patterns the rule-based system might miss
-  - Providing independent confirmation of setups
+**Multiple AI Providers Supported**:
 
-- **Multiple AI Providers Supported**:
-  - OpenAI (GPT-4, GPT-4o-mini)
-  - Anthropic (Claude 3)
-  - Groq (Fast free inference)
-  - Ollama (Local LLM)
+- OpenAI (GPT-4, GPT-4o-mini)
+- Anthropic (Claude 3 Haiku)
+- Groq (Fast free inference)
+- Google Gemini
+- Ollama (Local LLM)
 
-- **Smart Caching** - Reduces API calls by caching analysis results
+### 📈 Adaptive Trading System
 
-### 📊 Bitcoin Market Filter
+- **Market Regime Detection** - Adjusts strategy based on conditions
+- **ATR-Based Stop Loss** - Dynamic stops instead of fixed 2%
+- **Adaptive RSI** - Different bounds per regime (Trending: 60-75, Ranging: 40-60)
+- **Confluence Scoring** - 8+ high, 6-8 medium, <6 reject
+- **Auto-Optimization** - Disables weak strategies, boosts strong ones
 
-- Filters signals based on Bitcoin's trend
-- Avoids trading against the market leader
-- LONG signals when BTC is Bullish
-- SHORT signals when BTC is Bearish
+### 📊 Trade Journal & Learning
 
-### 🎯 Quality Filters
-
-- Minimum 3:1 Risk/Reward ratio
-- Excludes stablecoins (USDT, USDC, DAI, etc.)
-- Price range filter ($1 - $10,000)
-
-### 🔔 Alert System
-
-- Telegram Bot notifications
-- Discord Webhooks
-- Email alerts
+- **Auto-logs** every signal with full trade data
+- **Tracks outcomes** - Win/Loss, RR achieved, market regime
+- **Performance metrics** - Win rate, avg RR, max drawdown
+- **Auto-optimization** - Win rate <40% → reduce weight, >60% → boost
 
 ## Quick Start
 
@@ -69,17 +77,13 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Edit `.env` and add your Telegram credentials:
+Edit `.env` and add your credentials:
 
 ```env
 # Telegram Alerts (Required for notifications)
 TELEGRAM_BOT_TOKEN=your_bot_token_from_botfather
 TELEGRAM_CHAT_ID=your_numeric_chat_id
 ```
-
-**To get Telegram Chat ID:**
-1. Search for @BotFather on Telegram and create a bot
-2. Search for @userinfobot to get your numeric chat ID
 
 ### 3. Run Scanner
 
@@ -90,11 +94,8 @@ python main.py scan
 # Single scan with Telegram alerts
 python main.py scan --alerts
 
-# Continuous scanning (every 5 minutes)
+# Continuous scanning
 python main.py continuous
-
-# Continuous scanning with Telegram alerts
-python main.py continuous --alerts
 
 # View statistics
 python main.py stats
@@ -105,174 +106,88 @@ python main.py test
 
 ### ⏰ Scheduled Scanner Mode
 
-Run the scanner with a scheduler that runs daily at a specific time:
-
 ```bash
 # Run with scheduler (daily at 3 PM IST Mon-Fri)
 python main.py --schedule
 ```
 
-The scheduler will:
-- Run daily scans at 3:00 PM IST (Asia/Kolkata timezone)
-- Run on weekdays only (Monday to Friday)
-- Send Telegram alerts when signals are generated
-- Monitor signal resolution in the background
-
 ## Configuration
 
 ### Scanner Settings
 
-| Setting | Default | Description |
-| ------------------------- | ------- | --------------------- |
-| `SCAN_INTERVAL_MINUTES` | 5 | Scan frequency (minutes) |
-| `MAX_COINS_TO_SCAN` | 500 | Max coins to analyze |
-| `MIN_MARKET_CAP_MILLIONS` | $10M | Min market cap filter |
-| `MIN_VOLUME_24H_MILLIONS` | $1M | Min 24h volume |
-| `MIN_SIGNAL_SCORE` | 7.0 | Min confidence score |
-| `TIMEFRAMES` | 4h,daily | Timeframes to scan |
-
-Edit these in `.env` file.
+| Setting                 | Default  | Description              |
+| ----------------------- | -------- | ------------------------ |
+| `SCAN_INTERVAL_MINUTES` | 5        | Scan frequency (minutes) |
+| `MAX_COINS_TO_SCAN`     | 500      | Max coins to analyze     |
+| `MIN_SIGNAL_SCORE`      | 7.0      | Min confidence score     |
+| `TIMEFRAMES`            | 4h,daily | Timeframes to scan       |
 
 ### AI/LLM Settings
 
-| Setting | Default | Description |
-| ------------------------- | ------- | --------------------- |
-| `AI_PROVIDER` | openai | AI provider: openai, anthropic, groq, ollama |
-| `OPENAI_API_KEY` | - | Your OpenAI API key |
-| `ANTHROPIC_API_KEY` | - | Your Anthropic API key |
-| `GROQ_API_KEY` | - | Your Groq API key (free) |
-| `OLLAMA_BASE_URL` | http://localhost:11434 | Ollama local server URL |
-| `ENABLE_AI_ANALYSIS` | true | Enable/disable AI analysis |
-| `MAX_AI_CALLS_PER_SCAN` | 10 | Max AI analyses per scan |
-| `CACHE_AI_ANALYSIS` | true | Cache results to reduce API calls |
+| Setting               | Default | Description                |
+| --------------------- | ------- | -------------------------- |
+| `AI_PROVIDER`         | openai  | Primary AI provider        |
+| `ENABLE_AI_ANALYSIS`  | true    | Enable AI analysis         |
+| `AI_FALLBACK_ENABLED` | true    | Enable rule-based fallback |
 
-## Setting Up AI Providers
+### New Engine Settings
 
-### Option 1: Groq (Recommended - Free & Fast)
+| Setting                | Default | Description              |
+| ---------------------- | ------- | ------------------------ |
+| `MIN_CONFLUENCE_SCORE` | 6.0     | Minimum confluence score |
+| `MAX_POSITION_SIZE`    | 100%    | Base position size       |
+| `OPTIMIZATION_ENABLED` | true    | Auto-optimize strategies |
 
-1. Get a free API key at https://console.groq.com/
-2. Add to `.env`:
-   ```
-   AI_PROVIDER=groq
-   GROQ_API_KEY=your_groq_api_key
-   ```
+## System Flow (Updated)
 
-### Option 2: OpenAI
+```
+Scan → Filter Coins → Detect Regime → Generate Signals → Apply Confluence → AI Validate → Position Size → Execute → Log → Learn → Optimize
+```
 
-1. Get an API key at https://platform.openai.com/
-2. Add to `.env`:
-   ```
-   AI_PROVIDER=openai
-   OPENAI_API_KEY=your_openai_api_key
-   ```
-
-### Option 3: Anthropic Claude
-
-1. Get an API key at https://www.anthropic.com/
-2. Add to `.env`:
-   ```
-   AI_PROVIDER=anthropic
-   ANTHROPIC_API_KEY=your_anthropic_api_key
-   ```
-
-### Option 4: Ollama (Local - No API Costs)
-
-1. Install Ollama from https://ollama.ai
-2. Run: `ollama pull llama3`
-3. Add to `.env`:
-   ```
-   AI_PROVIDER=ollama
-   OLLAMA_MODEL=llama3
-   ```
-
-## Supported Timeframes
-
-- 4 Hours (`4h`)
-- Daily (`daily`)
+1. **Filter Coins** - Top 150 by volume/momentum/strength
+2. **Detect Regime** - TRENDING/RANGING/HIGH_VOL/LOW_VOL
+3. **Generate Signals** - Rule-based strategy engines
+4. **Apply Confluence** - Score EMA, volume, RSI, BTC, timeframe
+5. **AI Validate** - APPROVE/REJECT/MODIFY with journal awareness
+6. **Position Size** - 9+→100%, 8+→70%, 7→50%, <6→skip
+7. **Execute** - Send alerts
+8. **Log** - Store in trade journal
+9. **Learn** - Track outcomes and update metrics
+10. **Optimize** - Adjust strategy weights based on performance
 
 ## Strategy Details
 
-### 1. Trend Continuation (Long)
+### Market Regime Adjustments
 
-**Conditions:**
+| Regime   | RSI Bounds | Favor Strategies                        | Min Confidence |
+| -------- | ---------- | --------------------------------------- | -------------- |
+| TRENDING | 55-75      | Trend Continuation, Volatility Breakout | 6.0            |
+| RANGING  | 40-60      | Liquidity Sweep, Reversals              | 7.0            |
+| HIGH_VOL | 45-70      | Volatility Breakout                     | 6.5            |
+| LOW_VOL  | 30-70      | Avoid trades                            | 8.5            |
 
-- Price > EMA20 > EMA50 > EMA100 > EMA200
-- Volume > Volume MA(30)
-- RSI between 55-70
-- Pullback to EMA20/EMA50
+### Confluence Scoring (0-10)
 
-**Entry:** Slightly above current price  
-**Stop:** Below entry (2%)  
-**Target:** 3R-4R risk reward
+- **EMA Alignment** (20%) - Strong EMA alignment = 10
+- **Volume** (15%) - 2x volume = 10
+- **RSI** (15%) - In optimal zone = 10
+- **BTC Alignment** (25%) - Aligned with BTC trend = 10
+- **Signal Quality** (15%) - High RR, trend aligned = 10
+- **Timeframe Agreement** (10%) - Multi-TF alignment = 10
 
-### 2. Bearish Trend Short
+### Position Sizing
 
-**Conditions:**
-
-- Price < EMA20 < EMA50 < EMA100 < EMA200
-- Bounce to EMA20/EMA50
-
-**Entry:** Slightly below current price  
-**Stop:** Above entry (2%)  
-**Target:** 3R-4R risk reward
-
-### 3. Liquidity Sweep Reversal
-
-**Conditions:**
-
-- Price breaks previous high/low
-- Volume spike
-- Candle closes below/above breakout level
-
-**Signal:** Reversal opportunity after liquidity grab
-
-### 4. Volatility Breakout
-
-**Conditions:**
-
-- ATR lowest in 20 periods
-- Bollinger Band squeeze
-- Range contraction
-
-**Entry:** Breakout above/below range  
-**Stop:** Middle of range  
-**Target:** Measured move
-
-## Signal Output Example
-
-### Standard Signal (Rule-based)
-```
-BNB SHORT (4h)
-Strategy: Bearish Trend Short
-Entry: $671.62 - $673.64
-Stop Loss: $687.11
-Targets: T1=$631.20, T2=$617.72
-Risk/Reward: 1:3.0
-Confidence: 8.5/10
-```
-
-### AI-Enhanced Signal
-```
-1. ETH LONG 🧠
-   Strategy: Trend Continuation
-   Timeframe: 4h
-   Entry: $3245.00 - $3250.00
-   Stop Loss: $3185.00
-   Targets: T1=$3380.00, T2=$3450.00
-   Risk/Reward: 1:3.5
-   Confidence: 9.2/10
-   🧠 AI Enhanced: Yes (AI conf: 9.5/10)
-   Reason: Trend pullback to EMA20/EMA50. RSI momentum at 62.1.
-
-   🧠 AI Analysis: Strong bullish setup with clear EMA alignment...
-   📊 Market Context: BTC showing bullish momentum...
-   ⚠️ Risk Assessment: Low risk - good risk/reward...
-   🎯 Recommendation: STRONG BUY
-```
+| Confidence | Position Size | Risk |
+| ---------- | ------------- | ---- |
+| 9+         | 100%          | 2%   |
+| 8+         | 70%           | 1.4% |
+| 7+         | 50%           | 1%   |
+| <7         | Skip          | -    |
 
 ## Database
 
-Signals and trades are stored in `data/performance.db` (SQLite).
+- **Signals**: `data/performance.db` (SQLite)
+- **Trade Journal**: `data/trade_journal.db` (SQLite)
 
 ## Disclaimer
 
@@ -280,14 +195,24 @@ This scanner is for educational purposes. Always do your own research before mak
 
 ## Version History
 
-### v1.1.0 - AI Integration (Current)
-- Added AI/LLM integration for intelligent signal analysis
-- Support for multiple AI providers (OpenAI, Anthropic, Groq, Ollama)
-- AI signal enhancement with market context and risk assessment
-- AI-powered signal generation capability
-- Smart caching to reduce API costs
+### v2.0.0 - Enhanced (Current)
+
+- AI-first architecture with journal awareness
+- Market Regime Engine (TRENDING/RANGING/HIGH_VOL/LOW_VOL)
+- Confluence Scoring Engine (0-10)
+- Position Sizing Engine
+- Trade Journal System with auto-optimization
+- Coin Filter Engine (top 150)
+- Adaptive indicators (ATR stops, regime-aware RSI)
+
+### v1.1.0 - AI Integration
+
+- AI/LLM integration for signal analysis
+- Multiple AI providers support
+- Smart caching
 
 ### v1.0.0 - Initial Release
+
 - Multi-strategy scanning
 - Rule-based confidence scoring
 - Bitcoin market filter

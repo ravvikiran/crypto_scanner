@@ -155,7 +155,7 @@ class PerformanceTracker:
         except Exception as e:
             logger.error(f"Error saving signal: {e}")
     
-    def save_scan_result(self, signals: List[TradingSignal], scan_duration: float, btc_trend: str, btc_price: float, market_regime: str):
+    def save_scan_result(self, signals: List[TradingSignal], scan_duration: float, btc_trend: str, btc_price: float, market_regime: str, detailed_regime: str = None):
         """Save scan results"""
         try:
             conn = sqlite3.connect(str(self.db_path))
@@ -163,6 +163,9 @@ class PerformanceTracker:
             
             long_count = sum(1 for s in signals if s.direction == SignalDirection.LONG)
             short_count = sum(1 for s in signals if s.direction == SignalDirection.SHORT)
+            
+            # Use detailed regime if provided, otherwise use market_regime
+            regime = detailed_regime if detailed_regime else market_regime
             
             cursor.execute("""
                 INSERT INTO scans (
@@ -177,7 +180,7 @@ class PerformanceTracker:
                 long_count,
                 short_count,
                 scan_duration,
-                market_regime
+                regime
             ))
             
             conn.commit()

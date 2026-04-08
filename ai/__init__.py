@@ -1,6 +1,7 @@
 """
 AI Signal Analyzer Module
 Integrates LLMs for intelligent trade signal analysis and enhancement.
+AI is the PRIMARY decision-maker, rule-based logic is the fallback.
 """
 
 import asyncio
@@ -18,6 +19,7 @@ from loguru import logger
 
 from config import get_config
 from models import TradingSignal, CoinData, TrendDirection, SignalDirection
+from engines.optimization_engine import TradeJournal
 
 
 # ==================== AI PROVIDER INTERFACES ====================
@@ -595,6 +597,8 @@ class AIAnalysisResult:
     key_levels: Dict[str, float]
     trade_recommendation: str
     timestamp: datetime = field(default_factory=datetime.now)
+    journal_reference: Dict[str, Any] = field(default_factory=dict)
+    ai_decision: str = "APPROVE"  # APPROVE, REJECT, MODIFY
 
 
 class AICache:
@@ -645,6 +649,7 @@ class AISignalAnalyzer:
 - Market microstructure and liquidity concepts
 - Risk management and position sizing
 - Market psychology and sentiment
+- AI-first decision making
 
 Your role is to analyze trading signals from a crypto scanner and provide:
 1. AI confidence score (0-10)
@@ -652,14 +657,14 @@ Your role is to analyze trading signals from a crypto scanner and provide:
 3. Risk assessment
 4. Key support/resistance levels
 5. Trade recommendation (STRONG BUY, BUY, HOLD, SELL, STRONG SELL)
+6. AI Decision: APPROVE, REJECT, or MODIFY
 
-Be concise but thorough. Focus on actionable insights.
-Always consider:
-- Current market regime (bull/bear/neutral)
-- BTC correlation
-- Volume dynamics
-- Risk/reward ratio
-- Recent price action
+CRITICAL - You MUST reference the Journal Statistics provided:
+- If sample_size < 20 trades → reduce confidence
+- If win_rate < 40% → REJECT or downgrade
+- If win_rate > 60% → boost confidence
+
+Journal stats are MANDATORY for all decisions. If not provided, assume neutral performance.
 
 Respond in JSON format with the following structure:
 {
@@ -668,7 +673,13 @@ Respond in JSON format with the following structure:
     "market_context": "<current market conditions>",
     "risk_assessment": "<risk factors>",
     "key_levels": {"support": <float>, "resistance": <float>},
-    "trade_recommendation": "<STRONG BUY|BUY|HOLD|SELL|STRONG SELL>"
+    "trade_recommendation": "<STRONG BUY|BUY|HOLD|SELL|STRONG SELL>",
+    "ai_decision": "<APPROVE|REJECT|MODIFY>",
+    "adjusted_entry": <float or null>,
+    "adjusted_sl": <float or null>,
+    "adjusted_targets": [<float>, <float> or null],
+    "position_size": <float 0-100>,
+    "reasoning_with_journal": "<explain how journal stats affected your decision>"
 }"""
 
     def __init__(self):
@@ -680,6 +691,13 @@ Respond in JSON format with the following structure:
         
         # Initialize the AI provider manager (with fallback support)
         self._initialize_client()
+        
+        # Initialize Trade Journal for journal-aware decisions
+        self._journal = TradeJournal()
+        
+        # Fallback mode flag
+        self._fallback_mode = False
+        self._fallback_reason = ""
     
     def _initialize_client(self):
         """Initialize the AI provider manager with automatic fallback"""
@@ -711,7 +729,7 @@ Respond in JSON format with the following structure:
             return self._provider_manager.get_current_provider_name()
         return ""
     
-    def _format_signal_for_ai(self, signal: TradingSignal, coin: Optional[CoinData] = None) -> str:
+    def _format_signal_for_ai(self, signal: TradingSignal, coin: Optional[CoinData] = None, journal_stats: Optional[Dict] = None) -> str:
         """Format trading signal data for AI analysis"""
         
         # Get key levels from coin data if available
@@ -730,6 +748,33 @@ Respond in JSON format with the following structure:
         
         if coin and coin.rsi:
             rsi = f"{coin.rsi:.1f}"
+        
+        # Format journal stats section
+        journal_section = ""
+        if journal_stats:
+            sample_size = journal_stats.get("sample_size", 0)
+            win_rate = journal_stats.get("win_rate", 0.5)
+            avg_rr = journal_stats.get("avg_rr", 0)
+            by_regime = journal_stats.get("by_regime", {})
+            
+            regime_info = ", ".join([f"{k}: {v.get('win_rate', 0)*100:.0f}%" for k, v in by_regime.items()]) if by_regime else "N/A"
+            
+            journal_section = f"""
+JOURNAL STATISTICS (MANDATORY REFERENCE):
+- Sample Size: {sample_size} trades
+- Win Rate: {win_rate*100:.1f}%
+- Avg RR: {avg_rr:.2f}
+- Performance by Regime: {regime_info}
+
+CRITICAL DECISION RULES:
+- If sample_size < 20 → REDUCE confidence by 20%
+- If win_rate < 40% → REJECT signal or reduce confidence below 5.0
+- If win_rate > 60% → BOOST confidence by up to 1.0
+"""
+        else:
+            journal_section = """
+JOURNAL STATISTICS: Not available - assume neutral performance (50% win rate)
+"""
         
         # Format signal data
         signal_data = f"""
@@ -766,8 +811,9 @@ KEY LEVELS (from chart):
 - Support: {support}
 - Resistance: {resistance}
 - RSI: {rsi}
+{journal_section}
 
-Analyze this signal and provide your assessment.
+Analyze this signal and provide your assessment with MANDATORY reference to journal stats.
 """
         return signal_data
     
@@ -787,7 +833,13 @@ Analyze this signal and provide your assessment.
                     "market_context": data.get("market_context", ""),
                     "risk_assessment": data.get("risk_assessment", ""),
                     "key_levels": data.get("key_levels", {}),
-                    "trade_recommendation": data.get("trade_recommendation", "HOLD")
+                    "trade_recommendation": data.get("trade_recommendation", "HOLD"),
+                    "ai_decision": data.get("ai_decision", "APPROVE"),
+                    "adjusted_entry": data.get("adjusted_entry"),
+                    "adjusted_sl": data.get("adjusted_sl"),
+                    "adjusted_targets": data.get("adjusted_targets", []),
+                    "position_size": data.get("position_size", 100),
+                    "reasoning_with_journal": data.get("reasoning_with_journal", "")
                 }
         except Exception as e:
             logger.error(f"Failed to parse AI response: {e}")
@@ -799,15 +851,23 @@ Analyze this signal and provide your assessment.
             "market_context": "",
             "risk_assessment": "",
             "key_levels": {},
-            "trade_recommendation": "HOLD"
+            "trade_recommendation": "HOLD",
+            "ai_decision": "APPROVE",
+            "adjusted_entry": None,
+            "adjusted_sl": None,
+            "adjusted_targets": [],
+            "position_size": 100,
+            "reasoning_with_journal": ""
         }
     
-    async def analyze_signal(self, signal: TradingSignal, coin: Optional[CoinData] = None) -> Optional[AIAnalysisResult]:
-        """Analyze a trading signal with AI"""
+    async def analyze_signal(self, signal: TradingSignal, coin: Optional[CoinData] = None, market_regime: str = "NEUTRAL") -> Optional[AIAnalysisResult]:
+        """Analyze a trading signal with AI (Primary decision maker)"""
         
         # Check if AI is available
         if not self.is_available:
-            logger.debug("AI analysis not available - provider not configured")
+            logger.debug("AI analysis not available - falling back to rule-based")
+            self._fallback_mode = True
+            self._fallback_reason = "AI provider not available"
             return None
         
         # Check rate limiting
@@ -815,8 +875,15 @@ Analyze this signal and provide your assessment.
             logger.warning(f"Max AI calls per scan reached ({self.ai_config.max_ai_calls_per_scan})")
             return None
         
-        # Check cache first
-        signal_data = self._format_signal_for_ai(signal, coin)
+        # Get journal stats for this strategy/symbol/timeframe
+        journal_stats = self._journal.get_journal_stats(
+            strategy=signal.strategy_type.value,
+            symbol=signal.symbol,
+            timeframe=signal.timeframe
+        )
+        
+        # Check cache first (include journal in cache key)
+        signal_data = self._format_signal_for_ai(signal, coin, journal_stats)
         
         if self.ai_config.cache_analysis:
             cached = self._cache.get(signal_data)
@@ -829,7 +896,9 @@ Analyze this signal and provide your assessment.
                     market_context=parsed["market_context"],
                     risk_assessment=parsed["risk_assessment"],
                     key_levels=parsed["key_levels"],
-                    trade_recommendation=parsed["trade_recommendation"]
+                    trade_recommendation=parsed["trade_recommendation"],
+                    journal_reference=journal_stats,
+                    ai_decision=parsed.get("ai_decision", "APPROVE")
                 )
         
         # Prepare messages
@@ -859,7 +928,8 @@ Analyze this signal and provide your assessment.
             parsed = self._parse_ai_response(response)
             
             current_provider = self._provider_manager.get_current_provider_name()
-            logger.info(f"AI analyzed {signal.symbol} using {current_provider}: {parsed['trade_recommendation']} (confidence: {parsed['ai_confidence']}/10)")
+            ai_decision = parsed.get("ai_decision", "APPROVE")
+            logger.info(f"AI analyzed {signal.symbol} using {current_provider}: {parsed['trade_recommendation']} | Decision: {ai_decision} (confidence: {parsed['ai_confidence']}/10)")
             
             return AIAnalysisResult(
                 signal_id=signal.id,
@@ -868,14 +938,20 @@ Analyze this signal and provide your assessment.
                 market_context=parsed["market_context"],
                 risk_assessment=parsed["risk_assessment"],
                 key_levels=parsed["key_levels"],
-                trade_recommendation=parsed["trade_recommendation"]
+                trade_recommendation=parsed["trade_recommendation"],
+                journal_reference=journal_stats,
+                ai_decision=ai_decision
             )
             
         except asyncio.TimeoutError:
-            logger.error(f"AI request timeout for {signal.symbol}")
+            logger.error(f"AI request timeout for {signal.symbol} - using fallback")
+            self._fallback_mode = True
+            self._fallback_reason = "AI request timeout"
             return None
         except Exception as e:
-            logger.error(f"AI analysis error for {signal.symbol}: {e}")
+            logger.error(f"AI analysis error for {signal.symbol}: {e} - using fallback")
+            self._fallback_mode = True
+            self._fallback_reason = str(e)
             return None
     
     async def analyze_signals_batch(self, signals: List[TradingSignal], coins: Dict[str, CoinData]) -> List[AIAnalysisResult]:
@@ -904,7 +980,7 @@ Analyze this signal and provide your assessment.
         return results
     
     def apply_ai_enhancements(self, signals: List[TradingSignal], ai_results: List[AIAnalysisResult]) -> List[TradingSignal]:
-        """Apply AI analysis results to trading signals"""
+        """Apply AI analysis results to trading signals (AI-first, rules fallback)"""
         
         # Create lookup for AI results
         result_map = {r.signal_id: r for r in ai_results}
@@ -915,6 +991,14 @@ Analyze this signal and provide your assessment.
             ai_result = result_map.get(signal.id)
             
             if ai_result:
+                # Check AI decision (APPROVE, REJECT, MODIFY)
+                ai_decision = getattr(ai_result, 'ai_decision', 'APPROVE')
+                
+                # Apply REJECT decision - skip the signal
+                if ai_decision == 'REJECT':
+                    logger.info(f"AI REJECTED signal {signal.symbol} - removing from results")
+                    continue
+                
                 # Enhance signal with AI analysis
                 # Combine original confidence with AI confidence (weighted average)
                 original_confidence = signal.confidence_score
@@ -924,11 +1008,28 @@ Analyze this signal and provide your assessment.
                 enhanced_confidence = (original_confidence * 0.4) + (ai_confidence * 0.6)
                 signal.confidence_score = min(enhanced_confidence, 10.0)
                 
+                # Apply MODIFY decision - adjust entry/SL/targets
+                if ai_decision == 'MODIFY':
+                    if ai_result.key_levels:
+                        if "adjusted_entry" in dir(ai_result) and ai_result.get("adjusted_entry"):
+                            signal.entry_zone_min = ai_result["adjusted_entry"]
+                        if "adjusted_sl" in dir(ai_result) and ai_result.get("adjusted_sl"):
+                            signal.stop_loss = ai_result["adjusted_sl"]
+                    logger.info(f"AI MODIFIED signal {signal.symbol}")
+                
                 # Enhance reasoning
-                enhanced_reasoning = f"{signal.reasoning}\n\n🧠 AI Analysis: {ai_result.ai_reasoning}\n"
+                journal_ref = ai_result.journal_reference if hasattr(ai_result, 'journal_reference') else {}
+                journal_info = ""
+                if journal_ref:
+                    sample_size = journal_ref.get("sample_size", 0)
+                    win_rate = journal_ref.get("win_rate", 0)
+                    journal_info = f"\n📓 Journal: {sample_size} trades, {win_rate*100:.0f}% win rate"
+                
+                enhanced_reasoning = f"{signal.reasoning}\n\n🧠 AI Decision: {ai_decision}\n"
+                enhanced_reasoning += f"🧠 AI Analysis: {ai_result.ai_reasoning}\n"
                 enhanced_reasoning += f"📊 Market Context: {ai_result.market_context}\n"
                 enhanced_reasoning += f"⚠️ Risk Assessment: {ai_result.risk_assessment}\n"
-                enhanced_reasoning += f"🎯 Recommendation: {ai_result.trade_recommendation}"
+                enhanced_reasoning += f"🎯 Recommendation: {ai_result.trade_recommendation}{journal_info}"
                 
                 signal.reasoning = enhanced_reasoning
                 
@@ -940,6 +1041,8 @@ Analyze this signal and provide your assessment.
                 
                 # Mark as AI-enhanced
                 signal.score_breakdown["ai_enhanced"] = ai_result.ai_confidence
+                signal.score_breakdown["ai_decision"] = ai_decision
+                signal.score_breakdown["journal_win_rate"] = journal_ref.get("win_rate", 0.5)
             
             enhanced_signals.append(signal)
         

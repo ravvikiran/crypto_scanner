@@ -157,7 +157,7 @@ class TradingSignal:
     
     # Scoring
     confidence_score: float = 0
-    score_breakdown: Dict[str, float] = field(default_factory=dict)
+    score_breakdown: Dict[str, Any] = field(default_factory=dict)
     
     # Reasoning
     reasoning: str = ""

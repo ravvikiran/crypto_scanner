@@ -1,5 +1,5 @@
 # Crypto Momentum & Reversal AI Scanner
-# Version: 1.1.0 - With AI/LLM Integration
+# Version: 2.0.0 - Enhanced (AI-First Architecture)
 
 # Core Dependencies
 aiosignal>=1.3.1

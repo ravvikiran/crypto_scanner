@@ -1,6 +1,7 @@
 """
 Crypto Scanner - Main Orchestrator
 Coordinates all modules to scan markets and generate trading signals.
+Enhanced with AI-first architecture and adaptive engines.
 """
 
 import asyncio
@@ -23,6 +24,13 @@ from storage import PerformanceTracker
 from ai import AISignalAnalyzer, AISignalGenerator
 from reasoning import HybridReasoner
 from learning import SignalTracker, AccuracyScorer, ResolutionChecker, LearningEngine
+from engines import (
+    MarketRegimeEngine, MarketRegime,
+    CoinFilterEngine,
+    ConfluenceEngine,
+    PositionSizerEngine,
+    OptimizationEngine
+)
 
 
 class CryptoScanner:
@@ -56,6 +64,13 @@ class CryptoScanner:
         )
         self.learning_engine = LearningEngine(self.config, self.accuracy_scorer)
         
+        # Initialize NEW Enhanced Engines
+        self.market_regime_engine = MarketRegimeEngine()
+        self.coin_filter_engine = CoinFilterEngine()
+        self.confluence_engine = ConfluenceEngine()
+        self.position_sizer = PositionSizerEngine()
+        self.optimization_engine = OptimizationEngine()
+        
         # Store coins for AI analysis
         self._coins_cache: Dict[str, CoinData] = {}
         
@@ -63,6 +78,7 @@ class CryptoScanner:
         self.is_running = False
         self.last_scan_time: Optional[datetime] = None
         self.last_signals: List[TradingSignal] = []
+        self.current_market_regime = MarketRegime.RANGING
         
         # Configure logging
         self._setup_logging()
@@ -81,18 +97,46 @@ class CryptoScanner:
         logger.info("Crypto Scanner initialized")
     
     async def run_scan(self) -> List[TradingSignal]:
-        """Execute a complete market scan"""
+        """Execute a complete market scan with enhanced flow"""
         
         scan_start = time.time()
         all_signals = []
         
         logger.info("=" * 60)
-        logger.info("🔍 Starting Market Scan")
+        logger.info("🔍 Starting Enhanced Market Scan")
         logger.info("=" * 60)
         
         try:
             # Step 1: Get Bitcoin trend first
             btc_trend = await self._get_btc_trend()
+            
+            # NEW: Step 1b - Detect Market Regime using new engine
+            btc_coin_data = None
+            async with MarketDataCollector() as temp_collector:
+                btc_candles = await temp_collector.get_candles("BTC", "4h")
+                if btc_candles and len(btc_candles) >= 50:
+                    from models import CoinData
+                    btc_coin_data = CoinData(
+                        symbol="BTC",
+                        name="Bitcoin",
+                        current_price=btc_candles[-1].close,
+                        market_cap=0,
+                        volume_24h=0,
+                        price_change_24h=0,
+                        price_change_percent_24h=0
+                    )
+                    btc_coin_data.candles["4h"] = btc_candles
+                    btc_coin_data = self.indicator_engine.calculate_all_indicators(btc_coin_data, "4h")
+            
+            if btc_coin_data:
+                self.current_market_regime = self.market_regime_engine.detect_regime(btc_coin_data, "4h")
+                regime_str = self.current_market_regime.value
+                logger.info(f"📊 Market Regime: {regime_str}")
+            else:
+                self.current_market_regime = MarketRegime.RANGING
+                regime_str = "RANGING"
+            
+            # Legacy market regime for compatibility
             market_regime = self.btc_filter.get_market_regime(btc_trend)
             
             # Step 2: Get top coins
@@ -101,6 +145,11 @@ class CryptoScanner:
             if not coins:
                 logger.warning("No coins fetched")
                 return []
+            
+            # NEW: Step 2b - Filter coins using new engine
+            coins = self.coin_filter_engine.filter_coins(coins, max_coins=150)
+            coins = self.coin_filter_engine.filter_by_strength(coins, btc_coin_data, min_strength=-0.5, max_coins=100)
+            logger.info(f"Filtered to {len(coins)} strong coins")
             
             # Step 3: Get candles for all coins
             logger.info(f"Fetching candles for {len(coins)} coins...")
@@ -197,12 +246,40 @@ class CryptoScanner:
             # Step 5: Filter signals by BTC trend
             all_signals = self.btc_filter.filter_signals_by_btc(all_signals, btc_trend)
             
+            # NEW: Step 5b - Apply Confluence Scoring
+            logger.info("📊 Applying Confluence Scoring...")
+            coins_dict = {c.symbol: c for c in coins}
+            for signal in all_signals:
+                coin = coins_dict.get(signal.symbol)
+                if coin:
+                    confluence_score, _ = self.confluence_engine.calculate_confluence(
+                        signal, coin, btc_trend, regime_str
+                    )
+                    signal.score_breakdown["confluence_score"] = confluence_score
+            
             # Step 6: Filter by minimum score
             qualified_signals = self.scorer.filter_signals(all_signals)
+            
+            # NEW: Step 6b - Apply Confluence Filter
+            qualified_signals = self.confluence_engine.apply_confluence_filter(qualified_signals, min_confluence=6.0)
             
             # Step 7: Filter by minimum risk/reward (3R or higher)
             min_r = 3.0
             qualified_signals = [s for s in qualified_signals if s.risk_reward >= min_r]
+            
+            # NEW: Step 7b - Check Optimization Engine for strategy weights
+            for signal in qualified_signals:
+                should_take, reason = self.optimization_engine.should_take_trade(
+                    signal.strategy_type.value,
+                    signal.confidence_score,
+                    regime_str
+                )
+                signal.score_breakdown["optimization_check"] = reason
+                if not should_take:
+                    signal.confidence_score *= 0.5
+            
+            # Re-filter after optimization check
+            qualified_signals = [s for s in qualified_signals if s.confidence_score >= self.config.scanner.min_signal_score]
             
             # Step 8: Rank and deduplicate
             final_signals = self._deduplicate_signals(qualified_signals)
@@ -211,10 +288,10 @@ class CryptoScanner:
             max_signals = 3
             final_signals = final_signals[:max_signals]
             
-            # Step 9: AI Analysis and Enhancement
+            # Step 9: AI Analysis and Enhancement (AI-first)
             if self.ai_analyzer.is_available:
                 logger.info("=" * 50)
-                logger.info("🧠 Running AI Analysis...")
+                logger.info("🧠 Running AI Analysis (AI-first)...")
                 logger.info("=" * 50)
                 
                 # Reset AI analysis count for this scan
@@ -223,11 +300,15 @@ class CryptoScanner:
                 # Build coins lookup dict
                 coins_dict = {c.symbol: c for c in coins}
                 
-                # Run AI analysis on signals
+                # Run AI analysis on signals - pass market regime for journal-aware decisions
+                # Modify the call to pass regime through individual signals
+                for signal in final_signals:
+                    signal.score_breakdown["market_regime"] = regime_str
+                
                 ai_results = await self.ai_analyzer.analyze_signals_batch(final_signals, coins_dict)
                 
                 if ai_results:
-                    # Apply AI enhancements to signals
+                    # Apply AI enhancements to signals (APPROVE/REJECT/MODIFY)
                     final_signals = self.ai_analyzer.apply_ai_enhancements(final_signals, ai_results)
                     
                     # Re-rank by updated confidence
@@ -241,14 +322,20 @@ class CryptoScanner:
                     
                     logger.info(f"AI enhanced {len(final_signals)} signals")
                 else:
-                    logger.info("No AI analysis results available")
+                    logger.info("No AI analysis results available - using rule-based fallback")
             else:
-                logger.info("AI analysis not available - skipping (configure AI in .env)")
+                logger.info("AI analysis not available - using rule-based fallback (50% size reduction)")
+                # Fallback mode - reduce position sizes
+                for signal in final_signals:
+                    signal.score_breakdown["fallback_mode"] = True
             
-            # Step 9b: Hybrid Reasoning Enhancement (Phase 3)
-            if self.hybrid_reasoner.is_available and final_signals:
+            # Step 9b: Hybrid Reasoning Enhancement (Phase 3) - 100% AI Reliance
+            # Only run if LLM is enabled in config
+            if (self.config.ai.enabled and 
+                self.hybrid_reasoner.is_available and 
+                final_signals):
                 logger.info("=" * 50)
-                logger.info("🔄 Running Hybrid Reasoning...")
+                logger.info("🔄 Running Hybrid Reasoning (100% AI Reliance)...")
                 logger.info("=" * 50)
                 
                 # Build coins lookup dict if not already done
@@ -315,21 +402,30 @@ class CryptoScanner:
             # Print signal details
             if final_signals:
                 logger.info("="*50)
-                logger.info("TOP SIGNALS")
+                logger.info("TOP SIGNALS (Enhanced)")
                 logger.info("="*50)
+                regime_str = self.current_market_regime.value
                 for i, sig in enumerate(final_signals, 1):
                     ai_indicator = "🤖" if "AI" in sig.reasoning and "AI GENERATED" in sig.reasoning else ""
                     logger.info(f"\n{i}. {sig.symbol} {sig.direction.value} {ai_indicator}")
                     logger.info(f"   Strategy: {sig.strategy_type.value}")
                     logger.info(f"   Timeframe: {sig.timeframe}")
+                    logger.info(f"   Market Regime: {regime_str}")
                     logger.info(f"   Entry: ${sig.entry_zone_min:.2f} - ${sig.entry_zone_max:.2f}")
                     logger.info(f"   Stop Loss: ${sig.stop_loss:.2f}")
                     logger.info(f"   Targets: T1=${sig.target_1:.2f}, T2=${sig.target_2:.2f}")
                     logger.info(f"   Risk/Reward: 1:{sig.risk_reward:.1f}")
                     logger.info(f"   Confidence: {sig.confidence_score:.1f}/10")
+                    # Show Confluence Score
+                    if sig.score_breakdown.get("confluence_score"):
+                        logger.info(f"   📊 Confluence: {sig.score_breakdown.get('confluence_score'):.1f}/10")
                     # Show AI badge in confidence if enhanced
                     if sig.score_breakdown.get("ai_enhanced"):
-                        logger.info(f"   🧠 AI Enhanced: Yes (AI conf: {sig.score_breakdown.get('ai_enhanced'):.1f}/10)")
+                        ai_decision = sig.score_breakdown.get("ai_decision", "APPROVE")
+                        logger.info(f"   🧠 AI: {ai_decision} (conf: {sig.score_breakdown.get('ai_enhanced'):.1f}/10)")
+                    # Show optimization check
+                    if sig.score_breakdown.get("optimization_check"):
+                        logger.info(f"   ⚡ Opt: {sig.score_breakdown.get('optimization_check')}")
                     # Show hybrid reasoning contribution if available
                     if sig.ai_reasoning_contribution != 0:
                         logger.info(f"   🔄 Hybrid: Base {sig.rule_based_confidence:.1f} → Final {sig.confidence_score:.1f} ({sig.ai_reasoning_contribution:+.1f})")
@@ -355,7 +451,8 @@ class CryptoScanner:
                 scan_duration,
                 btc_trend.value,
                 btc_price,
-                market_regime
+                market_regime,
+                self.current_market_regime.value  # New: detailed regime
             )
             
             # Phase 4: Add signals to learning tracker

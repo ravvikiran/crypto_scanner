@@ -270,51 +270,90 @@ Please provide your analysis in a structured format."""
         """
         Apply full hybrid analysis to a signal.
         
-        This method:
+        For 100% AI reliance:
         1. Stores the rule-based confidence
         2. Gets AI analysis
-        3. Parses confidence adjustment
-        4. Applies adjustment to confidence score
-        5. Combines reasoning
+        3. Replaces confidence score entirely with AI assessment
+        4. Requires LLM to be enabled
         
         Args:
             signal: The rule-based trading signal
             coin: The coin data with indicators
             
         Returns:
-            Updated signal with hybrid reasoning applied
+            Updated signal with AI-only confidence
         """
         if not self.is_available:
             return signal
         
-        # Store rule-based confidence
+        # Store rule-based confidence for reference
         signal.rule_based_confidence = signal.confidence_score
         
         # Get AI analysis
         ai_response = await self.analyze_signal(signal, coin)
         
         if ai_response:
-            # Get confidence adjustment
-            adjustment = self.get_confidence_adjustment(ai_response)
-            signal.ai_reasoning_contribution = adjustment
+            # For 100% AI reliance, extract AI's absolute confidence
+            # Try to find explicit confidence in AI response, otherwise use AI adjustment
+            ai_confidence = self._extract_ai_confidence(ai_response)
             
-            # Apply adjustment to confidence score
-            new_confidence = signal.confidence_score + adjustment
-            signal.confidence_score = max(0.0, min(10.0, new_confidence))
+            if ai_confidence > 0:
+                # Use AI confidence as the final score (100% AI reliance)
+                signal.confidence_score = ai_confidence
+                signal.ai_reasoning_contribution = ai_confidence - signal.rule_based_confidence
+            else:
+                # Fallback: use adjustment-based approach
+                adjustment = self.get_confidence_adjustment(ai_response)
+                signal.ai_reasoning_contribution = adjustment
+                new_confidence = signal.rule_based_confidence + adjustment
+                signal.confidence_score = max(0.0, min(10.0, new_confidence))
             
             # Combine reasoning
             signal.hybrid_reasoning = self.get_hybrid_reasoning(signal, ai_response)
             
             logger.info(
                 f"Hybrid analysis for {signal.symbol}: "
-                f"base={signal.rule_based_confidence:.1f}, "
-                f"adjustment={adjustment:+.1f}, "
-                f"final={signal.confidence_score:.1f}"
+                f"rule_based={signal.rule_based_confidence:.1f}, "
+                f"ai_final={signal.confidence_score:.1f}"
             )
         else:
-            # AI analysis failed, keep rule-based
+            # AI analysis failed, fall back to rule-based
             signal.hybrid_reasoning = signal.reasoning
             signal.ai_reasoning_contribution = 0.0
-            signal.rule_based_confidence = signal.confidence_score
+            signal.confidence_score = signal.rule_based_confidence
         
         return signal
+    
+    def _extract_ai_confidence(self, ai_response: str) -> float:
+        """
+        Extract absolute confidence score from AI response.
+        
+        Looks for patterns like:
+        - "Confidence: 8/10" or "Confidence: 8"
+        - "Confidence score: 7.5"
+        - "Final confidence: 9"
+        
+        Returns:
+            Confidence value between 0-10, or 0 if not found
+        """
+        if not ai_response:
+            return 0.0
+        
+        # Try to find explicit confidence patterns
+        patterns = [
+            r'[Cc]onfidence[:\s]*(\d+\.?\d*)\s*(?:/|\s?out of\s?)?\s*10?',
+            r'[Ff]inal [Cc]onfidence[:\s]*(\d+\.?\d*)',
+            r'[Ss]core[:\s]*(\d+\.?\d*)\s*(?:/|\s?out of\s?)?\s*10?',
+            r'(?:^|\n)\s*(\d+\.?\d*)\s*/\s*10\s*(?:\n|$)',
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, ai_response)
+            if match:
+                try:
+                    confidence = float(match.group(1))
+                    return max(0.0, min(10.0, confidence))
+                except ValueError:
+                    continue
+        
+        return 0.0

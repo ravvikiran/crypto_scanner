@@ -29,6 +29,7 @@ class AlertConfig:
     # Telegram
     telegram_bot_token: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
     telegram_chat_id: str = os.getenv("TELEGRAM_CHAT_ID", "")
+    telegram_channel_chat_id: str = os.getenv("TELEGRAM_CHANNEL_CHAT_ID", "")
     
     # Discord
     discord_webhook_url: str = os.getenv("DISCORD_WEBHOOK_URL", "")
@@ -94,6 +95,9 @@ class TradingConfig:
 @dataclass
 class AIConfig:
     """AI/LLM Configuration"""
+    # Enable LLM for AI analysis
+    enabled: bool = os.getenv("LLM_ENABLED", "true").lower() == "true"
+    
     # AI Provider: openai, anthropic, groq, ollama
     provider: str = os.getenv("AI_PROVIDER", "openai")
     
