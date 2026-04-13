@@ -41,6 +41,10 @@ class AlertConfig:
     smtp_password: str = os.getenv("SMTP_PASSWORD", "")
     email_from: str = os.getenv("EMAIL_FROM", "")
     email_to: str = os.getenv("EMAIL_TO", "")
+    
+    # Alert Configuration
+    confidence_threshold: float = float(os.getenv("ALERT_CONFIDENCE_THRESHOLD", "70"))
+    alert_cooldown_hours: int = int(os.getenv("ALERT_COOLDOWN_HOURS", "24"))
 
 
 @dataclass
@@ -57,6 +61,14 @@ class ScannerConfig:
     mtf_timeframes: List[str] = field(default_factory=lambda: ["daily", "1h", "15m"])
     enable_mtf_strategy: bool = True
     mtf_min_confidence: float = 7.0
+    
+    # PRD Signal Engine Configuration
+    enable_prd_strategy: bool = os.getenv("ENABLE_PRD_STRATEGY", "true").lower() == "true"
+    prd_timeframes: List[str] = field(default_factory=lambda: ["4h", "daily"])
+    prd_min_confidence: float = 70.0  # 0-100 scale
+    
+    # Market Universe
+    top_coins_by_market_cap: int = int(os.getenv("TOP_COINS_BY_MARKET_CAP", "100"))
 
 
 @dataclass
@@ -83,6 +95,14 @@ class StrategyConfig:
     bollinger_period: int = int(os.getenv("BOLLINGER_PERIOD", "20"))
     bollinger_std: float = float(os.getenv("BOLLINGER_STD", "2"))
     volatility_lookback: int = int(os.getenv("VOLATILITY_LOOKBACK", "20"))
+    
+    # PRD Signal Engine Parameters
+    breakout_volume_multiplier: float = float(os.getenv("BREAKOUT_VOLUME_MULTIPLIER", "1.5"))
+    pullback_rsi_low: float = float(os.getenv("PULLBACK_RSI_LOW", "40"))
+    pullback_rsi_high: float = float(os.getenv("PULLBACK_RSI_HIGH", "55"))
+    min_risk_reward: float = float(os.getenv("MIN_RISK_REWARD", "2.0"))
+    max_risk_per_trade: float = float(os.getenv("MAX_RISK_PER_TRADE", "0.02"))
+    prd_confidence_threshold: float = float(os.getenv("PRD_CONFIDENCE_THRESHOLD", "70"))
 
 
 @dataclass

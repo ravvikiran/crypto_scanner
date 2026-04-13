@@ -20,6 +20,14 @@ scanner:
   enable_mtf_strategy: true
   mtf_timeframes: ["daily", "1h", "15m"]
   mtf_min_confidence: 7.0
+  
+  # PRD Signal Engine Configuration
+  enable_prd_strategy: true
+  prd_timeframes: ["4h", "daily"]
+  prd_min_confidence: 70.0
+  
+  # Market Universe
+  top_coins_by_market_cap: 100
 
 # Scheduler Configuration
 scheduler:
@@ -51,6 +59,14 @@ learning:
   min_signals_for_insights: 20
   notify_on_resolution: true
 
+# Strategy PRD Parameters
+strategy:
+  breakout_volume_multiplier: 1.5
+  pullback_rsi_low: 40
+  pullback_rsi_high: 55
+  min_risk_reward: 2.0
+  max_risk_per_trade: 0.02
+
 # Alert Configuration
 alerts:
   telegram:
@@ -71,3 +87,7 @@ alerts:
     password: ""
     from: ""
     to: ""
+  
+  # Alert settings
+  confidence_threshold: 70  # PRD confidence threshold (0-100)
+  alert_cooldown_hours: 24  # Avoid duplicate alerts within 24 hours

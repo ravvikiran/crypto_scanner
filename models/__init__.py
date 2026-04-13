@@ -35,6 +35,10 @@ class StrategyType(Enum):
     LIQUIDITY_SWEEP = "Liquidity Sweep Reversal"
     VOLATILITY_BREAKOUT = "Volatility Breakout"
     NONE = "None"
+    # PRD Signal Types
+    BREAKOUT = "Breakout"
+    PULLBACK = "Pullback"
+    REJECTION = "Rejection"
 
 
 class TrendDirection(Enum):
@@ -182,6 +186,17 @@ class TradingSignal:
     near_breakout: bool = False
     breakout_distance_pct: float = 0
     
+    # PRD Signal Fields
+    breakout_level: float = 0
+    volume_multiplier: float = 1.0
+    rsi_at_entry: float = 0
+    trend_strength: float = 0
+    structure_quality: float = 0
+    volatility_factor: float = 0
+    
+    # AI Confidence Score (0-100)
+    ai_confidence_score: float = 0
+    
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary"""
         return {
@@ -198,11 +213,15 @@ class TradingSignal:
             "target_2": self.target_2,
             "risk_reward": f"1:{self.risk_reward:.1f}",
             "confidence_score": self.confidence_score,
+            "ai_confidence_score": self.ai_confidence_score,
+            "breakout_level": self.breakout_level,
+            "volume_multiplier": self.volume_multiplier,
+            "rsi_at_entry": self.rsi_at_entry,
             "reasoning": self.reasoning
         }
     
     def to_alert_string(self) -> str:
-        """Format as alert message"""
+        """Format as alert message (PRD format)"""
         direction_emoji = "🟢" if self.direction == SignalDirection.LONG else "🔴"
         strategy = self.strategy_type.value
         
@@ -210,48 +229,25 @@ class TradingSignal:
         
         rr = f"1:{self.risk_reward:.1f}"
         
+        # Use AI confidence score if available, otherwise use standard
+        ai_conf = self.ai_confidence_score if self.ai_confidence_score > 0 else self.confidence_score * 10
+        
+        # Entry price (use current price or entry zone)
+        entry_price = self.current_price if self.current_price > 0 else self.entry_zone_min
+        
         message = f"""
-{direction_emoji} <b>{self.direction.value} SETUP DETECTED</b>
+{direction_emoji} <b>{self.direction.value} - {strategy}</b>
 
-<b>{self.symbol}</b> ({self.name})
-Strategy: {strategy}
-Timeframe: {self.timeframe}
-Confidence: {self.confidence_score:.1f}/10
+<b>{self.symbol}/{self.timeframe}</b>
 
-💰 <b>Entry Zone</b>
-{self.entry_zone_min:.4f} - {self.entry_zone_max:.4f}
+Entry: ${entry_price:.4f}
+Stop Loss: ${self.stop_loss:.4f}
+Target: ${self.target_1:.4f}
 
-🛡️ <b>Stop Loss</b>
-{self.stop_loss:.4f}
+Confidence Score: {ai_conf:.0f}%
 
-🎯 <b>Targets</b>
-T1: {self.target_1:.4f}
-T2: {self.target_2:.4f}
-
-📈 <b>Risk/Reward</b>
-{rr}
-
-⚠️ <b>Risk Level</b>
-{risk_level}
-"""
-        
-        if self.range_high > 0 or self.range_low > 0:
-            message += f"""
-📊 <b>Trading Range</b>
-Low: {self.range_low:.4f}
-High: {self.range_high:.4f}
-"""
-        
-        if self.near_breakout:
-            message += f"""
-🚀 <b>Near Breakout</b>
-Distance: {self.breakout_distance_pct:.1f}%
-"""
-        
-        if self.reasoning:
-            message += f"""
-📝 <b>Reasoning</b>
-{self.reasoning[:400]}
+Reason:
+{self.reasoning[:200]}
 """
         
         return message

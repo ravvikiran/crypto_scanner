@@ -427,6 +427,38 @@ class LearningConfig:
 
 ---
 
-*Document Version: 1.0*
+*Document Version: 1.1*
 *Created: 2024-01-15*
-*Status: Draft for Review*
+*Updated: 2026-04-13*
+*Status: Implemented*
+
+---
+
+## Appendix: PRD Signal Engine (v2.1)
+
+Added in v2.1, the PRD Signal Engine implements the core trading signal logic:
+
+### Signal Types
+
+- **Breakout** - Resistance breakout + volume ≥1.5x + bullish close
+- **Pullback** - EMA 20/50 pullback + RSI 40-55 + bullish reversal
+- **Trend Continuation** - Price > EMA 50 > EMA 200 + HH/HL structure
+
+### AI Confidence Score (0-100)
+
+- Trend strength (0-25)
+- Volume confirmation (0-25)
+- Clean structure (0-25)
+- Volatility factor (0-25)
+
+### Risk Management
+
+- Stop Loss: Below swing low or 1.5-2% below entry
+- Max Risk per Trade: 2%
+- Minimum R/R: 2.0
+
+### Rejection Criteria
+
+- Price below EMA 200
+- Low volume environment (<0.8x avg)
+- Choppy/sideways market

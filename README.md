@@ -1,66 +1,54 @@
 # Crypto Momentum & Reversal AI Scanner (Enhanced)
 
-An **AI-first** self-improving crypto market scanner that adapts to market conditions and learns from trading performance. Continuously analyzes the **top 150 cryptocurrencies** and identifies high-probability trading setups.
+An **AI-first** self-improving crypto market scanner that identifies high-probability trading opportunities based on **Trend Continuation**, **Breakouts**, and **Pullbacks**. Continuously scans the **top 100+ cryptocurrencies** across multiple timeframes.
 
-## What's New in v2.0 (Enhanced Version)
+## What's New in v2.1 (PRD Signal Engine)
 
-### 🚀 AI-First Architecture
+### 🎯 PRD-Specific Features
 
-- **AI as Primary Decision Maker** - Signals generated and validated by AI
-- **Rule-based Logic as Fallback** - Used when AI is unavailable
-- **Journal-Aware Decisions** - AI references trade history before making decisions
-- **APPROVE/REJECT/MODIFY** - AI decides whether to execute, reject, or modify signals
+- **Breakout Signals** - Resistance breakout + volume ≥1.5x + bullish close
+- **Pullback Signals** - EMA 20/50 pullback + RSI 40-55 + bullish reversal
+- **Trend Detection** - Price > EMA 50 > EMA 200 + Higher Highs/Higher Lows
+- **Rejection Filters** - Excludes price below EMA 200, low volume, choppy markets
+- **AI Confidence Score** - 0-100 scale based on trend/volume/structure/volatility
+- **PRD Output Format** - Clear signals with entry, stop loss, target, and reasoning
 
 ### 📊 New Engine Modules
 
+- **PRD Signal Engine** - Complete PRD signal logic implementation
 - **Market Regime Engine** - Detects TRENDING, RANGING, HIGH_VOL, LOW_VOL
-- **Coin Filter Engine** - Filters top 150 by volume/momentum/strength vs BTC
+- **Coin Filter Engine** - Filters by volume/momentum/strength vs BTC
 - **Confluence Engine** - Multi-signal scoring (0-10) with 6 factors
-- **Position Sizer** - Dynamic position sizing based on confidence
-- **Optimization Engine** - Auto-optimizes strategies based on win rate
-- **Trade Journal** - Tracks all trades for continuous learning
 
 ## Features
 
-### 🔍 Multi-Strategy Scanning
+### 🔍 PRD Signal Types
 
-- **Trend Continuation (Long)** - EMA alignment with pullback entries
-- **Bearish Trend Short** - Short setups in downtrends
-- **Liquidity Sweep Reversal** - Detects fake breakouts
-- **Volatility Breakout** - Captures explosive moves from compression
-- **Multi-Timeframe Strategy** - Daily/1h/15m alignment
+- **Breakout** - Price breaks above resistance with volume confirmation
+- **Pullback** - Healthy retracement to EMA with RSI 40-55 zone
+- **Trend Continuation** - EMA aligned with momentum
 
-### 🧠 AI/LLM Integration (AI-First)
+### 📈 Risk Management
 
-The scanner uses AI as the **primary decision maker**:
+- Stop Loss: Below recent swing low or 1.5-2% below entry
+- Max Risk per Trade: 1-2%
+- Minimum Risk/Reward: 1:2
 
-- **AI Signal Analysis** - Each signal is validated by AI
-- **Journal-Aware** - References past trades before deciding
-- **APPROVE/REJECT/MODIFY** - Explicit AI decisions
-- **Fallback Mode** - Rule-based with 50% size reduction when AI fails
+### 🧠 AI/LLM Integration
 
 **Multiple AI Providers Supported**:
-
 - OpenAI (GPT-4, GPT-4o-mini)
 - Anthropic (Claude 3 Haiku)
 - Groq (Fast free inference)
 - Google Gemini
 - Ollama (Local LLM)
 
-### 📈 Adaptive Trading System
-
-- **Market Regime Detection** - Adjusts strategy based on conditions
-- **ATR-Based Stop Loss** - Dynamic stops instead of fixed 2%
-- **Adaptive RSI** - Different bounds per regime (Trending: 60-75, Ranging: 40-60)
-- **Confluence Scoring** - 8+ high, 6-8 medium, <6 reject
-- **Auto-Optimization** - Disables weak strategies, boosts strong ones
-
 ### 📊 Trade Journal & Learning
 
-- **Auto-logs** every signal with full trade data
-- **Tracks outcomes** - Win/Loss, RR achieved, market regime
-- **Performance metrics** - Win rate, avg RR, max drawdown
-- **Auto-optimization** - Win rate <40% → reduce weight, >60% → boost
+- Auto-logs every signal with full trade data
+- Tracks outcomes - Win/Loss, RR achieved, market regime
+- Performance metrics - Win rate, avg RR
+- Auto-optimization based on win rate
 
 ## Quick Start
 
@@ -83,6 +71,9 @@ Edit `.env` and add your credentials:
 # Telegram Alerts (Required for notifications)
 TELEGRAM_BOT_TOKEN=your_bot_token_from_botfather
 TELEGRAM_CHAT_ID=your_numeric_chat_id
+
+# AI Provider (optional - enables AI analysis)
+OPENAI_API_KEY=your_key
 ```
 
 ### 3. Run Scanner
@@ -115,74 +106,89 @@ python main.py --schedule
 
 ### Scanner Settings
 
-| Setting                 | Default  | Description              |
-| ----------------------- | -------- | ------------------------ |
-| `SCAN_INTERVAL_MINUTES` | 5        | Scan frequency (minutes) |
-| `MAX_COINS_TO_SCAN`     | 500      | Max coins to analyze     |
-| `MIN_SIGNAL_SCORE`      | 7.0      | Min confidence score     |
-| `TIMEFRAMES`            | 4h,daily | Timeframes to scan       |
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `SCAN_INTERVAL_MINUTES` | 5 | Scan frequency (minutes) |
+| `MAX_COINS_TO_SCAN` | 500 | Max coins to analyze |
+| `TOP_COINS_BY_MARKET_CAP` | 100 | Top N coins by market cap |
+| `TIMEFRAMES` | 4h,daily | Timeframes to scan |
 
-### AI/LLM Settings
+### PRD Engine Settings
 
-| Setting               | Default | Description                |
-| --------------------- | ------- | -------------------------- |
-| `AI_PROVIDER`         | openai  | Primary AI provider        |
-| `ENABLE_AI_ANALYSIS`  | true    | Enable AI analysis         |
-| `AI_FALLBACK_ENABLED` | true    | Enable rule-based fallback |
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `ENABLE_PRD_STRATEGY` | true | Enable PRD signal detection |
+| `PRD_TIMEFRAMES` | 4h,daily | PRD timeframes |
+| `PRD_MIN_CONFIDENCE` | 70.0 | Min AI confidence (0-100) |
+| `BREAKOUT_VOLUME_MULTIPLIER` | 1.5 | Volume required for breakout |
+| `PULLBACK_RSI_LOW` | 40 | Pullback RSI lower bound |
+| `PULLBACK_RSI_HIGH` | 55 | Pullback RSI upper bound |
+| `MIN_RISK_REWARD` | 2.0 | Minimum R/R ratio |
 
-### New Engine Settings
+### Alert Settings
 
-| Setting                | Default | Description              |
-| ---------------------- | ------- | ------------------------ |
-| `MIN_CONFLUENCE_SCORE` | 6.0     | Minimum confluence score |
-| `MAX_POSITION_SIZE`    | 100%    | Base position size       |
-| `OPTIMIZATION_ENABLED` | true    | Auto-optimize strategies |
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `ALERT_CONFIDENCE_THRESHOLD` | 70 | Send alerts above this confidence |
+| `ALERT_COOLDOWN_HOURS` | 24 | Duplicate alert cooldown |
 
-## System Flow (Updated)
+## Signal Output Format
 
 ```
-Scan → Filter Coins → Detect Regime → Generate Signals → Apply Confluence → AI Validate → Position Size → Execute → Log → Learn → Optimize
+🟢 LONG - Breakout
+
+SOL/USDT
+
+Entry: $145.00
+Stop Loss: $138.00
+Target: $165.00
+
+Confidence Score: 82%
+
+Reason:
+Breakout on 4h | Resistance breakout at $143.50 | 
+Volume spike (2.1x avg) | Strong bullish close | 
+Market in uptrend (EMA aligned)
 ```
 
-1. **Filter Coins** - Top 150 by volume/momentum/strength
+## System Flow
+
+```
+Scan → Filter Coins → Detect Regime → Generate PRD Signals → 
+Apply Confluence → AI Validate → Filter by R/R → 
+Position Size → Execute → Log → Learn
+```
+
+1. **Filter Coins** - Top 100+ by market cap and volume
 2. **Detect Regime** - TRENDING/RANGING/HIGH_VOL/LOW_VOL
-3. **Generate Signals** - Rule-based strategy engines
-4. **Apply Confluence** - Score EMA, volume, RSI, BTC, timeframe
-5. **AI Validate** - APPROVE/REJECT/MODIFY with journal awareness
-6. **Position Size** - 9+→100%, 8+→70%, 7→50%, <6→skip
-7. **Execute** - Send alerts
-8. **Log** - Store in trade journal
-9. **Learn** - Track outcomes and update metrics
-10. **Optimize** - Adjust strategy weights based on performance
+3. **Generate PRD Signals** - Breakout, Pullback, Trend Continuation
+4. **Apply Confluence** - Score EMA, volume, RSI, BTC alignment
+5. **AI Validate** - Optional AI enhancement
+6. **Filter by R/R** - Reject signals with R/R < 2.0
+7. **Execute** - Send alerts (confidence ≥70)
 
-## Strategy Details
+## PRD Signal Logic
 
-### Market Regime Adjustments
+### Trend Detection
+- Price > EMA 50 > EMA 200
+- Last 3 swing highs are increasing
+- Last 3 swing lows are increasing
 
-| Regime   | RSI Bounds | Favor Strategies                        | Min Confidence |
-| -------- | ---------- | --------------------------------------- | -------------- |
-| TRENDING | 55-75      | Trend Continuation, Volatility Breakout | 6.0            |
-| RANGING  | 40-60      | Liquidity Sweep, Reversals              | 7.0            |
-| HIGH_VOL | 45-70      | Volatility Breakout                     | 6.5            |
-| LOW_VOL  | 30-70      | Avoid trades                            | 8.5            |
+### Breakout Signal
+- Price breaks above resistance (last 20-period high)
+- Volume ≥ 1.5x average volume
+- Candle closes above breakout level
 
-### Confluence Scoring (0-10)
+### Pullback Signal
+- Uptrend confirmed
+- Price retraces to EMA 20 or EMA 50
+- RSI between 40-55
+- Bullish reversal candle appears
 
-- **EMA Alignment** (20%) - Strong EMA alignment = 10
-- **Volume** (15%) - 2x volume = 10
-- **RSI** (15%) - In optimal zone = 10
-- **BTC Alignment** (25%) - Aligned with BTC trend = 10
-- **Signal Quality** (15%) - High RR, trend aligned = 10
-- **Timeframe Agreement** (10%) - Multi-TF alignment = 10
-
-### Position Sizing
-
-| Confidence | Position Size | Risk |
-| ---------- | ------------- | ---- |
-| 9+         | 100%          | 2%   |
-| 8+         | 70%           | 1.4% |
-| 7+         | 50%           | 1%   |
-| <7         | Skip          | -    |
+### Rejection (Don't Trade)
+- Price below EMA 200
+- Low volume environment
+- Choppy sideways market
 
 ## Database
 
@@ -195,28 +201,20 @@ This scanner is for educational purposes. Always do your own research before mak
 
 ## Version History
 
-### v2.0.0 - Enhanced (Current)
+### v2.1.0 - PRD Signal Engine (Current)
+- PRD signal logic (Breakout, Pullback, Trend)
+- AI Confidence Scoring (0-100)
+- Risk Management Layer
+- PRD output format
 
+### v2.0.0 - Enhanced
 - AI-first architecture with journal awareness
-- Market Regime Engine (TRENDING/RANGING/HIGH_VOL/LOW_VOL)
-- Confluence Scoring Engine (0-10)
-- Position Sizing Engine
-- Trade Journal System with auto-optimization
-- Coin Filter Engine (top 150)
-- Adaptive indicators (ATR stops, regime-aware RSI)
-
-### v1.1.0 - AI Integration
-
-- AI/LLM integration for signal analysis
-- Multiple AI providers support
-- Smart caching
+- Market Regime Engine
+- Confluence Scoring Engine
 
 ### v1.0.0 - Initial Release
-
 - Multi-strategy scanning
 - Rule-based confidence scoring
-- Bitcoin market filter
-- Alert system
 
 ## License
 

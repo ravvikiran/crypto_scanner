@@ -31,6 +31,7 @@ from engines import (
     PositionSizerEngine,
     OptimizationEngine
 )
+from strategies.prd_signal_engine import PRDSignalEngine
 
 
 class CryptoScanner:
@@ -70,6 +71,9 @@ class CryptoScanner:
         self.confluence_engine = ConfluenceEngine()
         self.position_sizer = PositionSizerEngine()
         self.optimization_engine = OptimizationEngine()
+        
+        # Initialize PRD Signal Engine
+        self.prd_engine = PRDSignalEngine()
         
         # Store coins for AI analysis
         self._coins_cache: Dict[str, CoinData] = {}
@@ -242,6 +246,36 @@ class CryptoScanner:
             if mtf_signals:
                 all_signals.extend(mtf_signals)
                 logger.info(f"Combined signals: {len(all_signals)} (including {len(mtf_signals)} MTF)")
+            
+            # Step 3d: Run PRD Signal Engine (if enabled)
+            if getattr(self.config.scanner, 'enable_prd_strategy', True):
+                prd_timeframes = getattr(self.config.scanner, 'prd_timeframes', ['4h', 'daily'])
+                prd_min_confidence = getattr(self.config.scanner, 'prd_min_confidence', 70.0)
+                
+                logger.info(f"Running PRD Signal Engine for: {prd_timeframes}...")
+                
+                for coin in coins:
+                    for tf in prd_timeframes:
+                        # Calculate indicators for this timeframe
+                        coin_tf = self.indicator_engine.calculate_all_indicators(coin, tf)
+                        
+                        # Scan for PRD signals
+                        prd_signals = self.prd_engine.scan_all_prd_signals(coin_tf, tf)
+                        
+                        for signal in prd_signals:
+                            # Filter by confidence threshold
+                            if signal.ai_confidence_score < prd_min_confidence:
+                                continue
+                            
+                            # Filter by risk/reward
+                            if signal.risk_reward < self.prd_engine.min_risk_reward:
+                                continue
+                            
+                            # Enrich with BTC alignment
+                            signal = self.scorer.enrich_with_btc_alignment(signal, btc_trend)
+                            all_signals.append(signal)
+                
+                logger.info(f"PRD signals: {len([s for s in all_signals if s.strategy_type.value in ['Breakout', 'Pullback']])}")
             
             # Step 5: Filter signals by BTC trend
             all_signals = self.btc_filter.filter_signals_by_btc(all_signals, btc_trend)
