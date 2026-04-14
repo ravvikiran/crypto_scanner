@@ -23,7 +23,7 @@ from dashboard import Dashboard
 from storage import PerformanceTracker
 from ai import AISignalAnalyzer, AISignalGenerator
 from reasoning import HybridReasoner
-from learning import SignalTracker, AccuracyScorer, ResolutionChecker, LearningEngine
+from learning import SignalTracker, AccuracyScorer, ResolutionChecker, LearningEngine, TradeJournal, SelfAdaptationEngine
 from engines import (
     MarketRegimeEngine, MarketRegime,
     CoinFilterEngine,
@@ -64,6 +64,8 @@ class CryptoScanner:
             self.accuracy_scorer
         )
         self.learning_engine = LearningEngine(self.config, self.accuracy_scorer)
+        self.trade_journal = TradeJournal(self.config)
+        self.self_adaptation = SelfAdaptationEngine(self.config)
         
         # Initialize NEW Enhanced Engines
         self.market_regime_engine = MarketRegimeEngine()
@@ -311,6 +313,22 @@ class CryptoScanner:
                 signal.score_breakdown["optimization_check"] = reason
                 if not should_take:
                     signal.confidence_score *= 0.5
+            
+            # NEW: Step 7c - Apply Self-Adaptation based on historical performance
+            if self.config.learning.enable_learning:
+                all_outcomes = self.trade_journal.get_outcomes()
+                if len(all_outcomes) >= 5:
+                    for signal in qualified_signals:
+                        original_conf = signal.confidence_score
+                        adapted_conf = self.self_adaptation.apply_adaptations(
+                            signal.confidence_score,
+                            signal.strategy_type.value,
+                            signal.timeframe,
+                            signal.direction.value
+                        )
+                        signal.confidence_score = adapted_conf
+                        if abs(adapted_conf - original_conf) > 0.1:
+                            signal.score_breakdown["self_adaptation"] = f"{original_conf:.1f} → {adapted_conf:.1f}"
             
             # Re-filter after optimization check
             qualified_signals = [s for s in qualified_signals if s.confidence_score >= self.config.scanner.min_signal_score]
@@ -640,6 +658,13 @@ class CryptoScanner:
         # Check for resolved signals
         resolved = await self.resolution_checker.check_all_signals()
         
+        self_adapted = False
+        all_outcomes = self.trade_journal.get_outcomes()
+        if len(all_outcomes) >= 5:
+            self.self_adaptation.generate_adaptations(all_outcomes)
+            self_adapted = True
+            logger.info("Self-adaptation applied based on outcomes")
+        
         # Generate insights if enough data
         insights_generated = []
         if self.learning_engine.should_generate_insights():
@@ -654,10 +679,12 @@ class CryptoScanner:
             "enabled": True,
             "resolved_signals": len(resolved),
             "insights_generated": len(insights_generated),
+            "self_adapted": self_adapted,
             "total_resolved": accuracy_stats.get('total_resolved', 0),
             "overall_win_rate": accuracy_stats.get('overall', 0),
             "quality_score": accuracy_stats.get('quality_score', 0),
-            "active_signals": self.signal_tracker.get_count()
+            "active_signals": self.signal_tracker.get_count(),
+            "journal_trades": self.trade_journal.get_outcomes_count()
         }
         
         logger.info(f"Learning check complete: {result}")

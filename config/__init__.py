@@ -45,6 +45,7 @@ class AlertConfig:
     # Alert Configuration
     confidence_threshold: float = float(os.getenv("ALERT_CONFIDENCE_THRESHOLD", "70"))
     alert_cooldown_hours: int = int(os.getenv("ALERT_COOLDOWN_HOURS", "24"))
+    max_daily_signals: int = int(os.getenv("MAX_DAILY_SIGNALS", "3"))
 
 
 @dataclass

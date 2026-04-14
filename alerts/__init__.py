@@ -14,6 +14,7 @@ from loguru import logger
 from models import TradingSignal, SignalDirection, StrategyType
 from config import get_config
 from alerts.telegram_bot import SignalDuplicateChecker
+from alerts.signal_publisher import SignalPublisher, get_signal_publisher
 
 
 class AlertManager:

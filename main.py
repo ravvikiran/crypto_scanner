@@ -13,6 +13,7 @@ from scanner import CryptoScanner
 from storage import PerformanceTracker
 from dashboard import Dashboard
 from alerts import AlertManager
+from alerts.signal_publisher import get_signal_publisher
 
 # Try to import yaml for config loading
 try:
@@ -48,7 +49,6 @@ def setup_logging(config: dict = None):
     level = getattr(logging, level_str.upper())
     log_format = log_config.get('format', '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     
-    # Create logs directory if it doesn't exist
     log_file = log_config.get('file', 'logs/scanner.log')
     log_path = Path(log_file)
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -71,56 +71,52 @@ def run_scheduled(config: dict, logger):
     """
     logger.info("Initializing scheduler and Telegram bot...")
     
-    # Create scheduler
+    signal_publisher = get_signal_publisher()
+    
+    logger.info(f"Signal Publisher initialized: {signal_publisher.get_status()}")
+    
     from src.scheduler import ScannerScheduler
     scheduler = ScannerScheduler(config)
+    scheduler.set_signal_publisher(signal_publisher)
     
-    # Add the scan job
     def scan_job():
         """Run scan in a thread-safe manner using a new event loop"""
         import asyncio
         logger.info("Running scheduled scan...")
         
-        # Create a new event loop for this thread to avoid conflicts
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
             scanner = CryptoScanner()
             signals = loop.run_until_complete(scanner.run_scan())
+            
             if signals:
-                scanner.send_alerts(signals)
+                publisher = get_signal_publisher()
+                
+                published_count = 0
+                for signal in signals:
+                    if publisher.can_publish():
+                        if publisher.publish_signal(signal):
+                            published_count += 1
+                            logger.info(f"Published signal: {signal.symbol} ({signal.direction.value})")
+                    else:
+                        logger.info(f"Daily limit reached, skipping: {signal.symbol}")
+                
+                logger.info(f"Published {published_count} signals this scan")
+            
             logger.info(f"Scheduled scan complete. {len(signals)} signals generated.")
         finally:
             loop.close()
     
     scheduler.add_job(scan_job)
     
-    # Add signal monitoring job if SIE is enabled
-    sie_config = config.get('signal_intelligence', {})
-    if sie_config.get('enabled', True):
-        def monitor_job():
-            logger.info("Running signal monitoring check...")
-            # Use existing ResolutionChecker for signal checking
-            from config import get_config
-            
-            try:
-                cfg = get_config()
-                if cfg.learning.enable_learning:
-                    from learning import ResolutionChecker
-                    resolution_checker = ResolutionChecker(cfg)
-                    resolution_checker.run_check_sync()
-                    logger.info("Signal monitoring check complete.")
-            except Exception as e:
-                logger.error(f"Error in monitor job: {e}")
-        
-        scheduler.add_monitor_job(monitor_job)
-    
-    # Start scheduler
     scheduler.start()
     
-    logger.info(f"Scheduler running. Next scan: {scheduler.get_next_run()}")
+    if scheduler.run_mode == 'continuous':
+        logger.info(f"Scheduler running in CONTINUOUS mode. Scanning every {config.get('scheduler', {}).get('continuous_interval_minutes', 15)} minutes.")
+    else:
+        logger.info(f"Scheduler running. Next scan: {scheduler.get_next_run()}")
     
-    # Check if Telegram is configured for alerts
     from config import get_config
     cfg = get_config()
     if cfg.alerts.telegram_bot_token and cfg.alerts.telegram_chat_id:
@@ -128,7 +124,7 @@ def run_scheduled(config: dict, logger):
     else:
         logger.warning("Telegram bot not configured - alerts will not be sent")
     
-    logger.info("System running. Scanner at 3 PM Mon-Fri.")
+    logger.info("Signal monitoring active - checking SL/TP every 15 minutes")
     logger.info("Press Ctrl+C to stop")
     
     try:
@@ -210,6 +206,173 @@ def test_alerts(args):
         print("❌ Test alert failed. Check configuration.")
 
 
+def handle_trade(args):
+    """Handle trade-related commands"""
+    from config import get_config
+    cfg = get_config()
+    
+    if not cfg.learning.enable_learning:
+        print("Learning system is disabled. Enable in config.")
+        return
+    
+    from learning import TradeJournal, SelfAdaptationEngine, AccuracyScorer
+    
+    journal = TradeJournal(cfg)
+    adaptation = SelfAdaptationEngine(cfg)
+    
+    if args.trade_action == "journal":
+        trade_id = journal.journal_entry(
+            symbol=args.symbol,
+            direction=args.direction,
+            entry_price=float(args.entry),
+            quantity=float(args.quantity),
+            stop_loss=float(args.sl) if args.sl else None,
+            target_1=float(args.t1) if args.t1 else None,
+            target_2=float(args.t2) if args.t2 else None,
+            strategy_type=args.strategy if args.strategy else "Manual",
+            timeframe=args.timeframe if args.timeframe else "1h",
+            notes=args.notes if args.notes else ""
+        )
+        print(f"✅ Trade journaled: {trade_id}")
+        print(f"   Symbol: {args.symbol}")
+        print(f"   Direction: {args.direction}")
+        print(f"   Entry: ${args.entry}")
+        print(f"   Quantity: {args.quantity}")
+    
+    elif args.trade_action == "exit":
+        if args.trade_id:
+            outcome = journal.journal_exit(
+                trade_id=args.trade_id,
+                exit_price=float(args.exit_price),
+                exit_reason=args.reason,
+                notes=args.notes if args.notes else ""
+            )
+            if outcome:
+                pnl = outcome.pnl_percent
+                emoji = "✅" if pnl > 0 else "❌"
+                print(f"✅ Trade closed: {args.trade_id}")
+                print(f"   {emoji} Exit: ${args.exit_price}")
+                print(f"   PnL: {pnl:+.2f}%")
+                
+                adaptation.generate_adaptations(journal.get_outcomes())
+            else:
+                print("❌ Trade not found")
+        else:
+            outcome = journal.close_trade_by_symbol(
+                symbol=args.symbol,
+                exit_price=float(args.exit_price),
+                exit_reason=args.reason,
+                notes=args.notes if args.notes else ""
+            )
+            if outcome:
+                pnl = outcome.pnl_percent
+                emoji = "✅" if pnl > 0 else "❌"
+                print(f"✅ Trade closed: {args.symbol}")
+                print(f"   {emoji} Exit: ${args.exit_price}")
+                print(f"   PnL: {pnl:+.2f}%")
+                
+                adaptation.generate_adaptations(journal.get_outcomes())
+            else:
+                print("❌ No open trade found for symbol")
+    
+    elif args.trade_action == "list":
+        open_trades = journal.get_open_trades()
+        if open_trades:
+            print("\n📓 Open Trades:")
+            for t in open_trades:
+                print(f"  {t['trade_id']}: {t['symbol']} {t['direction']} @ ${t['entry_price']}")
+        else:
+            print("No open trades")
+        
+        stats = journal.get_stats()
+        print(f"\nStats: {stats['closed_trades']} closed, {stats['win_rate']:.1f}% win rate")
+    
+    elif args.trade_action == "stats":
+        stats = journal.get_stats()
+        print(f"\n📊 Trade Journal Stats:")
+        print(f"   Open: {stats['open_trades']}")
+        print(f"   Closed: {stats['closed_trades']}")
+        print(f"   Win Rate: {stats['win_rate']:.1f}%")
+        print(f"   Total PnL: {stats['total_pnl']:+.2f}%")
+
+
+def handle_learning(args):
+    """Handle learning-related commands"""
+    from config import get_config
+    cfg = get_config()
+    
+    if not cfg.learning.enable_learning:
+        print("Learning system is disabled. Enable in config.")
+        return
+    
+    from learning import TradeJournal, SelfAdaptationEngine, AccuracyScorer, LearningEngine
+    
+    journal = TradeJournal(cfg)
+    adaptation = SelfAdaptationEngine(cfg)
+    accuracy = AccuracyScorer(cfg)
+    learning_engine = LearningEngine(cfg, accuracy)
+    
+    if args.learning_action == "stats":
+        stats = learning_engine.get_accuracy_stats()
+        print("\n📊 Learning System Stats:")
+        print(f"   Total Resolved: {stats.get('total_resolved', 0)}")
+        print(f"   Win Rate: {stats.get('overall', 0):.1f}%")
+        print(f"   Quality Score: {stats.get('quality_score', 0):.1f}/10")
+        
+        if stats.get('by_strategy'):
+            print(f"   By Strategy:")
+            for strat, wr in stats['by_strategy'].items():
+                print(f"     {strat}: {wr:.1f}%")
+        
+        if stats.get('by_timeframe'):
+            print(f"   By Timeframe:")
+            for tf, wr in stats['by_timeframe'].items():
+                print(f"     {tf}: {wr:.1f}%")
+        
+        jstats = journal.get_stats()
+        print(f"\n📓 Journal Trades:")
+        print(f"   Open: {jstats['open_trades']}, Closed: {jstats['closed_trades']}")
+    
+    elif args.learning_action == "adapt":
+        all_outcomes = journal.get_outcomes()
+        if accuracy.get_outcomes_count() > 0:
+            all_outcomes.extend(accuracy._outcomes)
+        
+        adaptations = adaptation.generate_adaptations(all_outcomes)
+        if adaptations:
+            print("✅ Adaptation applied")
+            
+            recs = adaptation.get_recommendations()
+            if recs:
+                print("\n📋 Recommendations:")
+                for r in recs:
+                    print(f"   - {r}")
+        else:
+            print("❌ Not enough data for adaptation (need 5+ outcomes)")
+    
+    elif args.learning_action == "show":
+        adaps = adaptation.get_all_adaptations()
+        
+        print("\n⚙️ Current Adaptations:")
+        print("Strategy Weights:")
+        for s, w in adaps.get('strategy_weights', {}).items():
+            print(f"  {s}: {w:.2f}")
+        
+        print("Timeframe Weights:")
+        for t, w in adaps.get('timeframe_weights', {}).items():
+            print(f"  {t}: {w:.2f}")
+        
+        print("Direction Bias:")
+        for d, w in adaps.get('direction_bias', {}).items():
+            print(f"  {d}: {w:.2f}")
+    
+    elif args.learning_action == "reset":
+        confirm = input("Reset all adaptations? (y/n): ")
+        if confirm.lower() == 'y':
+            adaptation.reset_adaptations()
+            print("✅ Adaptations reset to defaults")
+
+
 def main():
     """Main CLI entry point"""
     # Load YAML config if available
@@ -254,6 +417,45 @@ Examples:
     # Test command
     test_parser = subparsers.add_parser("test", help="Test alert configuration")
     
+    # Trade command
+    trade_parser = subparsers.add_parser("trade", help="Trade journal commands")
+    trade_subparsers = trade_parser.add_subparsers(dest="trade_action", help="Trade actions")
+    
+    journal_parser = trade_subparsers.add_parser("journal", help="Journal a new trade entry")
+    journal_parser.add_argument("symbol", help="Trading symbol (e.g., BTC)")
+    journal_parser.add_argument("direction", help="LONG or SHORT")
+    journal_parser.add_argument("entry", help="Entry price")
+    journal_parser.add_argument("quantity", help="Quantity/amount")
+    journal_parser.add_argument("--sl", help="Stop loss price")
+    journal_parser.add_argument("--t1", help="Target 1 price")
+    journal_parser.add_argument("--t2", help="Target 2 price")
+    journal_parser.add_argument("--strategy", help="Strategy type")
+    journal_parser.add_argument("--timeframe", help="Timeframe")
+    journal_parser.add_argument("--notes", help="Notes")
+    
+    exit_parser = trade_subparsers.add_parser("exit", help="Close a trade")
+    exit_parser.add_argument("--trade-id", help="Trade ID to close")
+    exit_parser.add_argument("--symbol", help="Symbol to close (closes earliest)")
+    exit_parser.add_argument("exit_price", help="Exit price")
+    exit_parser.add_argument("reason", help="Exit reason: MANUAL, TARGET_1_HIT, TARGET_2_HIT, STOP_LOSS_HIT")
+    exit_parser.add_argument("--notes", help="Notes")
+    
+    list_parser = trade_subparsers.add_parser("list", help="List open trades")
+    
+    trade_stats_parser = trade_subparsers.add_parser("stats", help="Show trade journal stats")
+    
+    # Learning command
+    learning_parser = subparsers.add_parser("learning", help="Learning system commands")
+    learning_subparsers = learning_parser.add_subparsers(dest="learning_action", help="Learning actions")
+    
+    learning_stats_parser = learning_subparsers.add_parser("stats", help="Show learning statistics")
+    
+    adapt_parser = learning_subparsers.add_parser("adapt", help="Run self-adaptation analysis")
+    
+    show_adapt_parser = learning_subparsers.add_parser("show", help="Show current adaptations")
+    
+    reset_adapt_parser = learning_subparsers.add_parser("reset", help="Reset adaptations to defaults")
+    
     args = parser.parse_args()
     
     # Handle --schedule mode (runs without subcommand)
@@ -280,6 +482,12 @@ Examples:
         
     elif args.command == "test":
         test_alerts(args)
+    
+    elif args.command == "trade":
+        handle_trade(args)
+        
+    elif args.command == "learning":
+        handle_learning(args)
 
 
 if __name__ == "__main__":

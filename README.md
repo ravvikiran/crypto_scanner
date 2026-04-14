@@ -201,11 +201,13 @@ This scanner is for educational purposes. Always do your own research before mak
 
 ## Version History
 
-### v2.1.0 - PRD Signal Engine (Current)
+### v2.2.0 - PRD Signal Engine Enhanced (Current)
 - PRD signal logic (Breakout, Pullback, Trend)
 - AI Confidence Scoring (0-100)
 - Risk Management Layer
 - PRD output format
+- Signal Publisher with SL/TP monitoring
+- Continuous scanning mode
 
 ### v2.0.0 - Enhanced
 - AI-first architecture with journal awareness

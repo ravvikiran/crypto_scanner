@@ -229,13 +229,23 @@ class PRDSignalEngine:
     ) -> Optional[TradingSignal]:
         """
         Check for breakout signal:
-        - Price breaks above resistance (last 20-period high)
+        - Bullish: Price breaks above resistance (last 20-period high)
+        - Bearish: Price breaks below support (last 20-period low)
         - Volume >= 1.5x average volume
-        - Candle closes above breakout level
+        - Candle closes through breakout level
         """
-        if trend != TrendDirection.BULLISH:
-            return None
-        
+        if trend == TrendDirection.BEARISH:
+            return self._check_bearish_breakout(coin, timeframe)
+        elif trend == TrendDirection.BULLISH:
+            return self._check_bullish_breakout(coin, timeframe)
+        return None
+    
+    def _check_bullish_breakout(
+        self,
+        coin: CoinData,
+        timeframe: str = "4h"
+    ) -> Optional[TradingSignal]:
+        """Check for bullish breakout signal (LONG)"""
         candles = coin.candles.get(timeframe, [])
         if len(candles) < 30:
             return None
@@ -246,39 +256,31 @@ class PRDSignalEngine:
         if sr.resistance is None:
             return None
         
-        # Check if price is breaking resistance
         if current_price <= sr.resistance:
             return None
         
-        # Check volume
         volume_ratio = self._calculate_volume_ratio(candles)
         if volume_ratio < self.breakout_volume_multiplier:
             return None
         
-        # Check for strong bullish close
         last_candle = candles[-1]
         if not (last_candle.close > sr.resistance and last_candle.is_bullish):
             return None
         
-        # Calculate risk management
         swing_points = self._detect_swing_points(candles)
         
-        # Stop loss: below recent swing low
         stop_loss: float
         if swing_points.last_low:
             stop_loss = swing_points.last_low * (1 - self.stop_loss_buffer)
         else:
-            # Fallback: 2% below entry
             stop_loss = current_price * 0.98
         
-        # Calculate targets and risk/reward
-        entry = current_price * 1.002  # Slight slippage
+        entry = current_price * 1.002
         risk = entry - stop_loss
         
         if risk <= 0:
             return None
         
-        # Risk should be <= 2%
         if risk / entry > self.max_risk_per_trade:
             stop_loss = entry * (1 - self.max_risk_per_trade)
             risk = entry - stop_loss
@@ -289,16 +291,13 @@ class PRDSignalEngine:
         reward = target_1 - entry
         risk_reward = reward / risk if risk > 0 else 0
         
-        # Check minimum R/R
         if risk_reward < self.min_risk_reward:
             return None
         
-        # Structure quality
         structure_quality = 50
         if swing_points.has_structure:
             structure_quality = 75 if self._has_bullish_structure(swing_points) else 50
         
-        # Calculate AI confidence score
         trend_strength, _ = self.detect_trend(coin, timeframe)
         volume_score = min(25, (volume_ratio / 2) * 15)
         ai_conf = self._calculate_ai_confidence(
@@ -309,7 +308,6 @@ class PRDSignalEngine:
             price=current_price
         )
         
-        # Build reasoning
         reasoning = self._build_breakout_reasoning(
             coin=coin,
             timeframe=timeframe,
@@ -343,7 +341,111 @@ class PRDSignalEngine:
             ai_confidence_score=ai_conf
         )
         
-        signal.confidence_score = ai_conf / 10  # Convert to 0-10 scale
+        signal.confidence_score = ai_conf / 10
+        
+        return signal
+    
+    def _check_bearish_breakout(
+        self,
+        coin: CoinData,
+        timeframe: str = "4h"
+    ) -> Optional[TradingSignal]:
+        """Check for bearish breakout signal (SHORT)"""
+        candles = coin.candles.get(timeframe, [])
+        if len(candles) < 30:
+            return None
+        
+        current_price = coin.current_price
+        sr = self.get_support_resistance(coin, timeframe)
+        
+        if sr.support is None:
+            return None
+        
+        if current_price >= sr.support:
+            return None
+        
+        volume_ratio = self._calculate_volume_ratio(candles)
+        if volume_ratio < self.breakout_volume_multiplier:
+            return None
+        
+        last_candle = candles[-1]
+        if not (last_candle.close < sr.support and not last_candle.is_bullish):
+            return None
+        
+        swing_points = self._detect_swing_points(candles)
+        
+        stop_loss: float
+        if swing_points.last_high:
+            stop_loss = swing_points.last_high * (1 + self.stop_loss_buffer)
+        else:
+            stop_loss = current_price * 1.02
+        
+        entry = current_price * 0.998
+        risk = stop_loss - entry
+        
+        if risk <= 0:
+            return None
+        
+        if risk / entry > self.max_risk_per_trade:
+            stop_loss = entry * (1 + self.max_risk_per_trade)
+            risk = stop_loss - entry
+        
+        target_1 = entry - (risk * 2)
+        target_2 = entry - (risk * 3)
+        
+        reward = entry - target_1
+        risk_reward = reward / risk if risk > 0 else 0
+        
+        if risk_reward < self.min_risk_reward:
+            return None
+        
+        structure_quality = 50
+        if swing_points.has_structure:
+            structure_quality = 75 if self._has_bearish_structure(swing_points) else 50
+        
+        trend_strength, _ = self.detect_trend(coin, timeframe)
+        ai_conf = self._calculate_ai_confidence(
+            trend_strength=structure_quality,
+            volume_confirmed=volume_ratio >= 1.5,
+            structure_quality=structure_quality,
+            volatility=coin.atr or 0,
+            price=current_price
+        )
+        
+        reasoning = self._build_bearish_breakout_reasoning(
+            coin=coin,
+            timeframe=timeframe,
+            support=sr.support,
+            volume_ratio=volume_ratio,
+            structure_quality=structure_quality
+        )
+        
+        signal = TradingSignal(
+            symbol=coin.symbol,
+            name=coin.name,
+            direction=SignalDirection.SHORT,
+            strategy_type=StrategyType.BREAKOUT,
+            timeframe=timeframe,
+            entry_zone_min=current_price * 0.995,
+            entry_zone_max=current_price * 0.999,
+            stop_loss=stop_loss,
+            target_1=target_1,
+            target_2=target_2,
+            risk_reward=risk_reward,
+            risk_amount=risk,
+            current_price=current_price,
+            trend_alignment=True,
+            volume_confirmation=True,
+            reasoning=reasoning,
+            breakout_level=sr.support,
+            volume_multiplier=volume_ratio,
+            rsi_at_entry=coin.rsi or 0,
+            trend_strength=structure_quality,
+            structure_quality=structure_quality,
+            ai_confidence_score=ai_conf
+        )
+        
+        signal.confidence_score = ai_conf / 10
         
         return signal
     
@@ -355,14 +457,21 @@ class PRDSignalEngine:
     ) -> Optional[TradingSignal]:
         """
         Check for pullback signal:
-        - Uptrend confirmed
-        - Price retraces to EMA 20 or EMA 50
-        - RSI between 40-55
-        - Bullish reversal candle appears
+        - Bullish pullback: Uptrend + Price retraces to EMA + RSI 40-55 + Bullish candle
+        - Bearish pullback: Downtrend + Price retraces to EMA + RSI 45-60 + Bearish candle
         """
-        if trend != TrendDirection.BULLISH:
-            return None
-        
+        if trend == TrendDirection.BEARISH:
+            return self._check_bearish_pullback(coin, timeframe)
+        elif trend == TrendDirection.BULLISH:
+            return self._check_bullish_pullback(coin, timeframe)
+        return None
+    
+    def _check_bullish_pullback(
+        self,
+        coin: CoinData,
+        timeframe: str = "4h"
+    ) -> Optional[TradingSignal]:
+        """Check for bullish pullback signal (LONG)"""
         candles = coin.candles.get(timeframe, [])
         if len(candles) < 50:
             return None
@@ -375,27 +484,22 @@ class PRDSignalEngine:
         if ema_20 is None or ema_50 is None:
             return None
         
-        # Check RSI in healthy pullback zone
         if rsi is None or not (self.pullback_rsi_low <= rsi <= self.pullback_rsi_high):
             return None
         
-        # Check price at EMA pullback zone
         pullback_zone_min = min(ema_20, ema_50) * 0.98
         pullback_zone_max = max(ema_20, ema_50) * 1.02
         
         if not (pullback_zone_min <= current_price <= pullback_zone_max):
             return None
         
-        # Check for bullish reversal candle
         last_candle = candles[-1]
         if not last_candle.is_bullish:
             return None
         
-        # Determine entry and stop loss
         entry_min = current_price * 1.001
         entry_max = current_price * 1.005
         
-        # Stop loss below EMA 50 or swing low
         swing_points = self._detect_swing_points(candles)
         stop_loss: float
         if swing_points.last_low:
@@ -403,12 +507,10 @@ class PRDSignalEngine:
         else:
             stop_loss = ema_50 * 0.97
         
-        # Calculate risk and targets
         risk = entry_min - stop_loss
         if risk <= 0:
             return None
         
-        # Check 2% max risk
         if risk / entry_min > self.max_risk_per_trade:
             stop_loss = entry_min * (1 - self.max_risk_per_trade)
             risk = entry_min - stop_loss
@@ -419,11 +521,9 @@ class PRDSignalEngine:
         reward = target_1 - entry_max
         risk_reward = reward / risk if risk > 0 else 0
         
-        # Min R/R check
         if risk_reward < self.min_risk_reward:
             return None
         
-        # Calculate confidence
         structure_quality = 50
         if swing_points.has_structure and self._has_bullish_structure(swing_points):
             structure_quality = 70
@@ -436,7 +536,6 @@ class PRDSignalEngine:
             price=current_price
         )
         
-        # Build reasoning
         reasoning = self._build_pullback_reasoning(
             coin=coin,
             timeframe=timeframe,
@@ -450,6 +549,112 @@ class PRDSignalEngine:
             symbol=coin.symbol,
             name=coin.name,
             direction=SignalDirection.LONG,
+            strategy_type=StrategyType.PULLBACK,
+            timeframe=timeframe,
+            entry_zone_min=entry_min,
+            entry_zone_max=entry_max,
+            stop_loss=stop_loss,
+            target_1=target_1,
+            target_2=target_2,
+            risk_reward=risk_reward,
+            risk_amount=risk,
+            current_price=current_price,
+            trend_alignment=True,
+            volume_confirmation=False,
+            reasoning=reasoning,
+            rsi_at_entry=rsi,
+            trend_strength=70,
+            structure_quality=structure_quality,
+            ai_confidence_score=ai_conf
+        )
+        
+        signal.confidence_score = ai_conf / 10
+        
+        return signal
+    
+    def _check_bearish_pullback(
+        self,
+        coin: CoinData,
+        timeframe: str = "4h"
+    ) -> Optional[TradingSignal]:
+        """Check for bearish pullback signal (SHORT)"""
+        candles = coin.candles.get(timeframe, [])
+        if len(candles) < 50:
+            return None
+        
+        current_price = coin.current_price
+        ema_20 = coin.ema_20
+        ema_50 = coin.ema_50
+        rsi = coin.rsi
+        
+        if ema_20 is None or ema_50 is None:
+            return None
+        
+        if rsi is None or not (45 <= rsi <= 60):
+            return None
+        
+        pullback_zone_min = max(ema_20, ema_50) * 0.98
+        pullback_zone_max = max(ema_20, ema_50) * 1.02
+        
+        if not (pullback_zone_min <= current_price <= pullback_zone_max):
+            return None
+        
+        last_candle = candles[-1]
+        if last_candle.is_bullish:
+            return None
+        
+        entry_min = current_price * 0.995
+        entry_max = current_price * 0.999
+        
+        swing_points = self._detect_swing_points(candles)
+        stop_loss: float
+        if swing_points.last_high:
+            stop_loss = swing_points.last_high * (1 + self.stop_loss_buffer)
+        else:
+            stop_loss = ema_50 * 1.03
+        
+        risk = stop_loss - entry_max
+        if risk <= 0:
+            return None
+        
+        if risk / entry_max > self.max_risk_per_trade:
+            stop_loss = entry_max * (1 + self.max_risk_per_trade)
+            risk = stop_loss - entry_max
+        
+        target_1 = entry_min - (risk * 2)
+        target_2 = entry_min - (risk * 3)
+        
+        reward = entry_min - target_1
+        risk_reward = reward / risk if risk > 0 else 0
+        
+        if risk_reward < self.min_risk_reward:
+            return None
+        
+        structure_quality = 50
+        if swing_points.has_structure and self._has_bearish_structure(swing_points):
+            structure_quality = 70
+        
+        ai_conf = self._calculate_ai_confidence(
+            trend_strength=70,
+            volume_confirmed=True,
+            structure_quality=structure_quality,
+            volatility=coin.atr or 0,
+            price=current_price
+        )
+        
+        reasoning = self._build_bearish_pullback_reasoning(
+            coin=coin,
+            timeframe=timeframe,
+            ema_20=ema_20,
+            ema_50=ema_50,
+            rsi=rsi,
+            structure_quality=structure_quality
+        )
+        
+        signal = TradingSignal(
+            symbol=coin.symbol,
+            name=coin.name,
+            direction=SignalDirection.SHORT,
             strategy_type=StrategyType.PULLBACK,
             timeframe=timeframe,
             entry_zone_min=entry_min,
@@ -615,6 +820,42 @@ class PRDSignalEngine:
             f"Structure quality: {structure_quality:.0f}%"
         )
     
+    def _build_bearish_breakout_reasoning(
+        self,
+        coin: CoinData,
+        timeframe: str,
+        support: float,
+        volume_ratio: float,
+        structure_quality: float
+    ) -> str:
+        """Build bearish breakout signal reasoning"""
+        return (
+            f"Bearish Breakout on {timeframe} | "
+            f"Support breakdown at ${support:.2f} | "
+            f"Volume spike ({volume_ratio:.1f}x avg) | "
+            f"Strong bearish close | "
+            f"Market in downtrend (EMA aligned) | "
+            f"Structure quality: {structure_quality:.0f}%"
+        )
+    
+    def _build_bearish_pullback_reasoning(
+        self,
+        coin: CoinData,
+        timeframe: str,
+        ema_20: float,
+        ema_50: float,
+        rsi: float,
+        structure_quality: float
+    ) -> str:
+        """Build bearish pullback signal reasoning"""
+        return (
+            f"Bearish Pullback on {timeframe} | "
+            f"Price at EMA resistance zone | "
+            f"RSI elevated at {rsi:.1f} (45-60 zone) | "
+            f"Bearish reversal candle | "
+            f"Structure quality: {structure_quality:.0f}%"
+        )
+    
     def scan_all_prd_signals(
         self,
         coin: CoinData,
@@ -623,8 +864,8 @@ class PRDSignalEngine:
         """
         Scan for all PRD signals:
         1. First check for rejections
-        2. Then check for breakout signals
-        3. Then check for pullback signals
+        2. Then check for breakout signals (bullish or bearish)
+        3. Then check for pullback signals (bullish or bearish)
         """
         signals = []
         
@@ -634,9 +875,11 @@ class PRDSignalEngine:
         if trend == TrendDirection.NEUTRAL:
             return signals
         
-        # Skip if below EMA 200
-        if coin.ema_200 and coin.current_price < coin.ema_200:
-            return signals
+        # For bullish trend: skip if price below EMA 200
+        # For bearish trend: allow signals (price below EMA 200 is expected)
+        if trend == TrendDirection.BULLISH:
+            if coin.ema_200 and coin.current_price < coin.ema_200:
+                return signals
         
         # Check volume - skip low volume environments
         candles = coin.candles.get(timeframe, [])
@@ -645,15 +888,14 @@ class PRDSignalEngine:
             if volume_ratio < 0.8:
                 return signals
         
-        # Check breakout
+        # Check breakout (handles both bullish and bearish)
         breakout = self.check_breakout_signal(coin, trend, timeframe)
         if breakout and breakout.ai_confidence_score >= 70:
             signals.append(breakout)
         
-        # Check pullback (only if no breakout or breakout below threshold)
+        # Check pullback (handles both bullish and bearish)
         pullback = self.check_pullback_signal(coin, trend, timeframe)
         if pullback and pullback.ai_confidence_score >= 70:
-            # Don't add if we already have a breakout
             if not any(s.strategy_type == StrategyType.BREAKOUT for s in signals):
                 signals.append(pullback)
         

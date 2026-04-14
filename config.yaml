@@ -33,7 +33,11 @@ scanner:
 scheduler:
   timezone: "Asia/Kolkata"
 
-  # Run daily at 3:00 PM IST (single scan per day)
+  # Run mode: "continuous" for 15-min scans, "scheduled" for daily scan at specific time
+  run_mode: "continuous"  # Options: "continuous" or "scheduled"
+  continuous_interval_minutes: 15  # Scan every 15 minutes in continuous mode
+
+  # Run daily at 3:00 PM IST (only used when run_mode is "scheduled")
   scan_time_hour: 15
   scan_time_minute: 0
 
@@ -91,3 +95,4 @@ alerts:
   # Alert settings
   confidence_threshold: 70  # PRD confidence threshold (0-100)
   alert_cooldown_hours: 24  # Avoid duplicate alerts within 24 hours
+  max_daily_signals: 3  # Maximum signals to publish per day (long + short combined)
