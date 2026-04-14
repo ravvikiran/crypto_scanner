@@ -14,7 +14,6 @@ from loguru import logger
 
 from models import TradingSignal, SignalDirection
 from config import get_config
-from alerts import AlertManager
 from learning import TradeJournal
 from collectors import MarketDataCollector
 

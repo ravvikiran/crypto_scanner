@@ -16,6 +16,14 @@ scanner:
   min_signal_score: 7.0
   timeframes: ["4h", "daily"]
   
+  # PRD: Market Universe - Top 100-300 coins by market cap
+  top_coins_by_market_cap: 300
+  min_top_coins: 100
+  
+  # PRD: Risk Management
+  max_trades_per_day: 5
+  daily_loss_cap: 0.03  # 3%
+  
   # Multi-Timeframe Strategy Configuration
   enable_mtf_strategy: true
   mtf_timeframes: ["daily", "1h", "15m"]
@@ -25,9 +33,32 @@ scanner:
   enable_prd_strategy: true
   prd_timeframes: ["4h", "daily"]
   prd_min_confidence: 70.0
+
+# PRD Data Layer Configuration
+data:
+  # Primary exchange
+  primary_exchange: "binance"
   
-  # Market Universe
-  top_coins_by_market_cap: 100
+  # Fallback exchanges (for when primary fails)
+  fallback_exchanges:
+    - "bybit"
+    - "kucoin"
+  
+  # Cache TTL per timeframe (seconds)
+  cache_ttl:
+    "1m": 30
+    "5m": 60
+    "15m": 120
+    "1h": 300
+    "4h": 300
+    "daily": 600
+  
+  # Data validation
+  validate:
+    reject_zero_volume: true
+    reject_candle_gaps: true
+    reject_abnormal_spikes: true
+    spike_threshold_percent: 15
 
 # Scheduler Configuration
 scheduler:
@@ -42,6 +73,16 @@ scheduler:
   scan_time_minute: 0
 
   run_days: [1, 2, 3, 4, 5]  # Monday to Friday
+
+  # PRD: Multi-Timeframe Scan Intervals
+  # 15m scan → every 5 min
+  # 4H scan → every 30 min
+  # 1D scan → every 2 hours
+  mtf_scan_intervals:
+    "15m": 5
+    "1h": 5
+    "4h": 30
+    "daily": 120
 
   # Market hours (for crypto, you might adjust these)
   market_open_hour: 9
@@ -69,7 +110,23 @@ strategy:
   pullback_rsi_low: 40
   pullback_rsi_high: 55
   min_risk_reward: 2.0
-  max_risk_per_trade: 0.02
+  max_risk_per_trade: 0.02  # 2%
+
+# PRD Rule Engine Weights
+rule_engine:
+  weights:
+    trend: 25
+    ema_alignment: 20
+    volume: 15
+    rsi_position: 10
+    pattern: 15
+    btc_correlation: 10
+    risk_reward: 5
+  
+  thresholds:
+    reject: 60
+    weak: 70
+    send_to_ai: 70
 
 # Alert Configuration
 alerts:

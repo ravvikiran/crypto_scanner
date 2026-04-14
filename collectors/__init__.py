@@ -1,6 +1,7 @@
 """
 Market Data Collector
 Fetches market data from various exchanges and APIs.
+Enhanced with data validation and caching per PRD spec.
 """
 
 import asyncio
@@ -11,9 +12,89 @@ from typing import List, Dict, Optional, Tuple
 from loguru import logger
 import pandas as pd
 import numpy as np
+from dataclasses import dataclass, field
 
 from models import CoinData, OHLCV, Timeframe, TrendDirection
 from config import get_config
+
+
+@dataclass
+class CandleCache:
+    """Cache for candle data with TTL"""
+    candles: List[OHLCV] = field(default_factory=list)
+    fetched_at: datetime = field(default_factory=datetime.now)
+    symbol: str = ""
+    timeframe: str = ""
+    
+    def is_expired(self, ttl_seconds: int) -> bool:
+        """Check if cache is expired"""
+        age = (datetime.now() - self.fetched_at).total_seconds()
+        return age > ttl_seconds
+
+
+class DataCache:
+    """
+    In-memory data cache with TTL per timeframe.
+    PRD Spec:
+    - 1m → 30 sec
+    - 5m → 1 min
+    - 15m → 2 min
+    - 1h → 5 min
+    """
+    
+    TTL_MAP = {
+        "1m": 30,
+        "5m": 60,
+        "15m": 120,
+        "1h": 300,
+        "4h": 300,
+        "daily": 600
+    }
+    
+    def __init__(self):
+        self._cache: Dict[str, CandleCache] = {}
+    
+    def _make_key(self, symbol: str, timeframe: str) -> str:
+        return f"{symbol}:{timeframe}"
+    
+    def get(self, symbol: str, timeframe: str) -> Optional[List[OHLCV]]:
+        """Get cached candles if not expired"""
+        key = self._make_key(symbol, timeframe)
+        cache = self._cache.get(key)
+        
+        if cache is None:
+            return None
+        
+        ttl = self.TTL_MAP.get(timeframe, 300)
+        
+        if cache.is_expired(ttl):
+            del self._cache[key]
+            return None
+        
+        return cache.candles
+    
+    def set(self, symbol: str, timeframe: str, candles: List[OHLCV]):
+        """Store candles in cache"""
+        key = self._make_key(symbol, timeframe)
+        self._cache[key] = CandleCache(
+            candles=candles,
+            fetched_at=datetime.now(),
+            symbol=symbol,
+            timeframe=timeframe
+        )
+    
+    def clear(self):
+        """Clear all cache"""
+        self._cache.clear()
+
+
+# Global cache instance
+_data_cache = DataCache()
+
+
+def get_data_cache() -> DataCache:
+    """Get the global data cache"""
+    return _data_cache
 
 
 class MarketDataCollector:
@@ -113,8 +194,20 @@ class MarketDataCollector:
     async def get_candles(self, symbol: str, timeframe: str, limit: int = 200) -> List[OHLCV]:
         """
         Fetch OHLCV candles for a symbol.
-        Uses Binance API as primary source.
+        Uses Binance API as primary source with caching.
+        
+        PRD Requirements:
+        - Use cache when available and not expired
+        - Validate data (reject volume=0, candle gaps, abnormal spikes >15%)
+        - Maintain rolling window of min 200 candles
         """
+        # Check cache first
+        cache = get_data_cache()
+        cached = cache.get(symbol, timeframe)
+        if cached is not None and len(cached) >= limit // 2:
+            logger.debug(f"Using cached candles for {symbol} {timeframe}")
+            return cached
+        
         candles = []
         
         try:
@@ -141,9 +234,56 @@ class MarketDataCollector:
                             volume=float(item[5])
                         )
                         candles.append(candle)
-                        
+                    
+                    # PRD: Data validation
+                    if not self._validate_candles(candles):
+                        logger.warning(f"Candle validation failed for {symbol} {timeframe}")
+                        return []
+                    
+                    # Cache the validated candles
+                    cache.set(symbol, timeframe, candles)
+                    
         except Exception as e:
             logger.error(f"Error fetching candles for {symbol}: {e}")
+        
+        return candles
+    
+    def _validate_candles(self, candles: List[OHLCV]) -> bool:
+        """
+        Validate candle data per PRD spec:
+        - Reject if volume = 0
+        - Reject if abnormal spikes (>15% price change in single candle)
+        - Reject if candle gaps detected
+        """
+        if not candles:
+            return False
+        
+        for i, candle in enumerate(candles):
+            # Check 1: Volume = 0
+            if candle.volume <= 0:
+                logger.warning(f"Invalid candle: zero volume at index {i}")
+                return False
+            
+            # Check 2: Abnormal spikes (>15% price change)
+            if candle.open > 0:
+                price_change_pct = abs(candle.close - candle.open) / candle.open * 100
+                if price_change_pct > 15:
+                    logger.warning(f"Abnormal price spike: {price_change_pct:.1f}% at index {i}")
+                    return False
+            
+            # Check 3: Candle gaps (for consecutive candles)
+            if i > 0:
+                prev_candle = candles[i - 1]
+                # Gap up: current open significantly above previous close
+                gap_up = candle.open > prev_candle.close * 1.05
+                # Gap down: current open significantly below previous close
+                gap_down = candle.open < prev_candle.close * 0.95
+                
+                if gap_up or gap_down:
+                    logger.warning(f"Candle gap detected: {'gap_up' if gap_up else 'gap_down'} at index {i}")
+                    return False
+        
+        return True
         
         return candles
     

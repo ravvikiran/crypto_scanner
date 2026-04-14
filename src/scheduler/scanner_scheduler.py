@@ -1,6 +1,11 @@
 """
 Scanner Scheduler
 Runs the accumulation scanner at a specific time on weekdays OR continuously every 15 minutes
+
+PRD Multi-Timeframe Scheduler:
+- 15m scan → every 5 min
+- 4H scan → every 30 min
+- 1D scan → every 2 hours
 """
 
 import logging
@@ -20,7 +25,20 @@ class ScannerScheduler:
     Scheduler for running the scanner:
     - Daily at specific time on weekdays (default 3:00 PM IST)
     - OR continuous every 15 minutes with signal publishing
+    
+    PRD Multi-Timeframe Support:
+    - 15m timeframe scans: every 5 minutes
+    - 4h timeframe scans: every 30 minutes  
+    - 1d timeframe scans: every 2 hours
     """
+    
+    # PRD Scan intervals
+    PRD_SCAN_INTERVALS = {
+        "15m": 5,      # 15m scan → every 5 min
+        "1h": 5,       # 1h scan → every 5 min
+        "4h": 30,      # 4h scan → every 30 min
+        "daily": 120   # 1d scan → every 2 hours
+    }
     
     def __init__(self, config: dict):
         self.config = config
@@ -46,6 +64,9 @@ class ScannerScheduler:
         
         self.job = None
         self.monitor_job = None
+        
+        # PRD: Multi-timeframe scan jobs
+        self.mtf_jobs = {}
         
         self._signal_publisher = None
     
@@ -97,6 +118,35 @@ class ScannerScheduler:
             logger.info(f"Daily scan job scheduled: {self.scan_hour}:{self.scan_minute:02d} IST on days {self.run_days}")
             
             self._add_monitoring_job()
+    
+    def add_mtf_scan_job(self, func: Callable, timeframe: str, job_id: str = None) -> None:
+        """
+        Add a multi-timeframe scan job based on PRD intervals.
+        
+        PRD Intervals:
+        - 15m scan → every 5 min
+        - 4H scan → every 30 min
+        - 1D scan → every 2 hours
+        """
+        interval_minutes = self.PRD_SCAN_INTERVALS.get(timeframe, 15)
+        
+        if job_id is None:
+            job_id = f'scan_{timeframe}'
+        
+        trigger = IntervalTrigger(
+            minutes=interval_minutes,
+            timezone=self.timezone
+        )
+        
+        self.mtf_jobs[timeframe] = self.scheduler.add_job(
+            func,
+            trigger=trigger,
+            id=job_id,
+            name=f'Scan {timeframe} (Every {interval_minutes} min)',
+            replace_existing=True
+        )
+        
+        logger.info(f"Added MTF scan job for {timeframe}: every {interval_minutes} minutes")
     
     def _add_monitoring_job(self):
         """Add the signal monitoring job to check SL/TP every 15 minutes."""

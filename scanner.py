@@ -29,7 +29,8 @@ from engines import (
     CoinFilterEngine,
     ConfluenceEngine,
     PositionSizerEngine,
-    OptimizationEngine
+    OptimizationEngine,
+    RiskManagementEngine
 )
 from strategies.prd_signal_engine import PRDSignalEngine
 
@@ -73,6 +74,9 @@ class CryptoScanner:
         self.confluence_engine = ConfluenceEngine()
         self.position_sizer = PositionSizerEngine()
         self.optimization_engine = OptimizationEngine()
+        
+        # PRD: Risk Management Engine
+        self.risk_engine = RiskManagementEngine()
         
         # Initialize PRD Signal Engine
         self.prd_engine = PRDSignalEngine()
@@ -298,6 +302,24 @@ class CryptoScanner:
             
             # NEW: Step 6b - Apply Confluence Filter
             qualified_signals = self.confluence_engine.apply_confluence_filter(qualified_signals, min_confluence=6.0)
+            
+            # PRD: Step 6c - Apply Risk Management Check
+            logger.info("📊 Running PRD Risk Management checks...")
+            risk_filtered = []
+            for signal in qualified_signals:
+                # Get signal score (0-100 scale)
+                signal_score = signal.ai_confidence_score if hasattr(signal, 'ai_confidence_score') and signal.ai_confidence_score > 0 else signal.confidence_score * 10
+                
+                can_take, reason = self.risk_engine.should_take_signal(signal_score)
+                signal.score_breakdown["risk_check"] = reason
+                
+                if can_take:
+                    risk_filtered.append(signal)
+                else:
+                    logger.debug(f"Risk rejected: {signal.symbol} - {reason}")
+            
+            qualified_signals = risk_filtered
+            logger.info(f"Risk management: {len(qualified_signals)} signals passed")
             
             # Step 7: Filter by minimum risk/reward (3R or higher)
             min_r = 3.0

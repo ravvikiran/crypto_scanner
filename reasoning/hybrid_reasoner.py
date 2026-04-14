@@ -41,10 +41,29 @@ class HybridReasoner:
         
         self.is_available = self.ai_provider.is_available()
         
+        # REQ-004: Hybrid Decision Algorithm weights
+        # Formula: Final_Score = (Rule_Score × Rule_Weight) + (AI_Score × AI_Weight)
+        # Default: 60% Rule-Based + 40% AI
+        self.rule_weight = self.config.ai.rule_weight
+        self.ai_weight = self.config.ai.ai_weight
+        
+        # Validate weights add up to 1.0
+        total_weight = self.rule_weight + self.ai_weight
+        if abs(total_weight - 1.0) > 0.01:
+            logger.warning(
+                f"Hybrid weights don't sum to 1.0 ({self.rule_weight} + {self.ai_weight} = {total_weight}). "
+                "Normalizing weights."
+            )
+            self.rule_weight = self.rule_weight / total_weight
+            self.ai_weight = self.ai_weight / total_weight
+        
         if not self.is_available:
             logger.warning("HybridReasoner: No AI providers available - hybrid reasoning disabled")
         else:
-            logger.info(f"HybridReasoner initialized with provider: {self.ai_provider.get_current_provider_name()}")
+            logger.info(
+                f"HybridReasoner initialized with provider: {self.ai_provider.get_current_provider_name()}, "
+                f"weights: {self.rule_weight:.0%} rule + {self.ai_weight:.0%} AI"
+            )
     
     async def analyze_signal(self, signal: TradingSignal, coin: CoinData) -> str:
         """
@@ -218,49 +237,90 @@ Please provide your analysis in a structured format."""
     
     def get_hybrid_reasoning(self, signal: TradingSignal, ai_response: str) -> str:
         """
-        Combine rule-based and AI reasoning into a unified output.
+        REQ-005: Combine rule-based and AI reasoning into unified output.
+        
+        Components:
+        - Key factors that contributed to the score
+        - AI insights and observations  
+        - Risk factors identified
         
         Args:
             signal: The original trading signal
             ai_response: The AI analysis response
             
         Returns:
-            Combined reasoning string
+            Combined reasoning string with risk factors
         """
         if not ai_response:
             return signal.reasoning if signal.reasoning else "Rule-based analysis only"
         
-        # Extract key parts from AI response
-        lines = ai_response.split('\n')
-        
-        # Build hybrid reasoning
         parts = []
         
-        # Add rule-based reasoning header
+        # === RULE-BASED ANALYSIS ===
         parts.append("=== RULE-BASED ANALYSIS ===")
         if signal.reasoning:
             parts.append(signal.reasoning)
         
-        # Add score info
+        # Score breakdown - key factors
         if signal.score_breakdown:
             breakdown_str = ", ".join([f"{k}: {v}" for k, v in signal.score_breakdown.items()])
             parts.append(f"Base Score: {signal.confidence_score:.1f}/10 ({breakdown_str})")
         
-        # Add AI analysis
+        # === AI ENHANCED ANALYSIS ===
         parts.append("\n=== AI ENHANCED ANALYSIS ===")
         
-        # Try to extract key sections from AI response
+        # Try to extract direction confirmation
         direction_match = re.search(r'(?:1\.|Direction)[:\s]*(LONG|SHORT|NO_TRADE)', ai_response, re.IGNORECASE)
         if direction_match:
             parts.append(f"AI Direction: {direction_match.group(1)}")
         
-        # Add the full AI response (truncated if too long)
-        if len(ai_response) > 500:
-            parts.append(ai_response[:500] + "...")
-        else:
-            parts.append(ai_response)
+        # Key observations from AI
+        key_obs_match = re.search(r'(?:3\.|Key observations?|Observations)[:\s]*(.+?)(?:\n\d+\.|$)', ai_response, re.IGNORECASE | re.DOTALL)
+        if key_obs_match:
+            parts.append(f"Key Observations: {key_obs_match.group(1).strip()}")
         
-        return "\n".join(parts)
+        # === RISK FACTORS (REQ-005) ===
+        parts.append("\n=== RISK FACTORS ===")
+        
+        # Extract risk assessment from AI (item 4 in prompt)
+        risk_match = re.search(r'(?:4\.|Risk assessment|Risks?)[:\s]*(.+?)(?:\n\d+\.|$)', ai_response, re.IGNORECASE | re.DOTALL)
+        if risk_match:
+            parts.append(f"Risk Assessment: {risk_match.group(1).strip()}")
+        else:
+            # Default risk factors based on signal properties
+            risk_factors = []
+            
+            # Check R/R ratio
+            if signal.risk_reward < 2.0:
+                risk_factors.append(f"Low R/R ratio: 1:{signal.risk_reward:.1f}")
+            
+            # Check confidence
+            if signal.confidence_score < 6.0:
+                risk_factors.append(f"Lower confidence: {signal.confidence_score:.1f}/10")
+            
+            # Check stop loss distance
+            if signal.stop_loss:
+                entry = signal.entry_zone_min
+                sl_distance = abs(entry - signal.stop_loss) / entry * 100
+                if sl_distance > 3.0:
+                    risk_factors.append(f"Wide stop loss: {sl_distance:.1f}% from entry")
+            
+            if risk_factors:
+                parts.append("; ".join(risk_factors))
+            else:
+                parts.append("No significant risk factors identified")
+        
+        # Suggested refinements
+        refine_match = re.search(r'(?:5\.|Suggested entry refinenments|Entry refinements?)[:\s]*(.+?)(?:\n\n|\n[^\d]|$)', ai_response, re.IGNORECASE | re.DOTALL)
+        if refine_match:
+            parts.append(f"Suggested Refinements: {refine_match.group(1).strip()}")
+        
+        # Truncate if too long
+        result = "\n".join(parts)
+        if len(result) > 1500:
+            result = result[:1500] + "...\n(truncated)"
+        
+        return result
     
     async def apply_hybrid_analysis(
         self, 
@@ -268,12 +328,15 @@ Please provide your analysis in a structured format."""
         coin: CoinData
     ) -> TradingSignal:
         """
-        Apply full hybrid analysis to a signal.
+        Apply full hybrid analysis to a signal using weighted scoring.
         
-        For 100% AI reliance:
+        REQ-004: Hybrid Decision Algorithm
+        Formula: Final_Score = (Rule_Score × Rule_Weight) + (AI_Score × AI_Weight)
+        Default: 60% Rule-Based + 40% AI
+        
         1. Stores the rule-based confidence
-        2. Gets AI analysis
-        3. Replaces confidence score entirely with AI assessment
+        2. Gets AI analysis in parallel
+        3. Combines using weighted formula
         4. Requires LLM to be enabled
         
         Args:
@@ -281,46 +344,56 @@ Please provide your analysis in a structured format."""
             coin: The coin data with indicators
             
         Returns:
-            Updated signal with AI-only confidence
+            Updated signal with hybrid confidence
         """
         if not self.is_available:
             return signal
         
-        # Store rule-based confidence for reference
-        signal.rule_based_confidence = signal.confidence_score
+        # Store rule-based confidence for reference (scale to 0-100)
+        signal.rule_based_confidence = signal.confidence_score * 10
         
         # Get AI analysis
         ai_response = await self.analyze_signal(signal, coin)
         
         if ai_response:
-            # For 100% AI reliance, extract AI's absolute confidence
-            # Try to find explicit confidence in AI response, otherwise use AI adjustment
-            ai_confidence = self._extract_ai_confidence(ai_response)
+            # Extract AI confidence (scale 0-100)
+            ai_confidence_raw = self._extract_ai_confidence(ai_response)
             
-            if ai_confidence > 0:
-                # Use AI confidence as the final score (100% AI reliance)
-                signal.confidence_score = ai_confidence
-                signal.ai_reasoning_contribution = ai_confidence - signal.rule_based_confidence
+            if ai_confidence_raw > 0:
+                # AI provided explicit confidence (scale from 0-10 to 0-100)
+                ai_confidence = ai_confidence_raw * 10
             else:
-                # Fallback: use adjustment-based approach
+                # Use adjustment-based approach + base AI confidence of 50
                 adjustment = self.get_confidence_adjustment(ai_response)
-                signal.ai_reasoning_contribution = adjustment
-                new_confidence = signal.rule_based_confidence + adjustment
-                signal.confidence_score = max(0.0, min(10.0, new_confidence))
+                ai_confidence = 50 + (adjustment * 10)
             
-            # Combine reasoning
+            # REQ-004: Apply weighted formula
+            # Final_Score = (Rule_Score × Rule_Weight) + (AI_Score × AI_Weight)
+            final_score = (
+                (signal.rule_based_confidence * self.rule_weight) + 
+                (ai_confidence * self.ai_weight)
+            )
+            
+            # Calculate contribution for logging
+            signal.ai_reasoning_contribution = ai_confidence - signal.rule_based_confidence
+            
+            # Store the combined score (scale back to 0-10)
+            signal.confidence_score = max(0.0, min(10.0, final_score / 10))
+            
+            # Combine reasoning with risk factors (REQ-005)
             signal.hybrid_reasoning = self.get_hybrid_reasoning(signal, ai_response)
             
             logger.info(
                 f"Hybrid analysis for {signal.symbol}: "
-                f"rule_based={signal.rule_based_confidence:.1f}, "
-                f"ai_final={signal.confidence_score:.1f}"
+                f"rule={signal.rule_based_confidence:.1f}×{self.rule_weight:.0%} + "
+                f"ai={ai_confidence:.1f}×{self.ai_weight:.0%} = "
+                f"final={final_score:.1f}"
             )
         else:
-            # AI analysis failed, fall back to rule-based
+            # AI analysis failed, fall back to rule-based only
             signal.hybrid_reasoning = signal.reasoning
             signal.ai_reasoning_contribution = 0.0
-            signal.confidence_score = signal.rule_based_confidence
+            signal.confidence_score = signal.rule_based_confidence / 10
         
         return signal
     

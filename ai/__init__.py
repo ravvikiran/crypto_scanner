@@ -980,7 +980,13 @@ Analyze this signal and provide your assessment with MANDATORY reference to jour
         return results
     
     def apply_ai_enhancements(self, signals: List[TradingSignal], ai_results: List[AIAnalysisResult]) -> List[TradingSignal]:
-        """Apply AI analysis results to trading signals (AI-first, rules fallback)"""
+        """Apply AI analysis results to trading signals (AI-first, rules fallback)
+        
+        PRD AI Decision Engine Rules:
+        - AI cannot override low score signals (<60)
+        - AI filters borderline trades (60-70)
+        - Only signals with score 70+ are sent to AI
+        """
         
         # Create lookup for AI results
         result_map = {r.signal_id: r for r in ai_results}
@@ -991,13 +997,35 @@ Analyze this signal and provide your assessment with MANDATORY reference to jour
             ai_result = result_map.get(signal.id)
             
             if ai_result:
+                # Get original PRD score (0-100)
+                original_score = signal.ai_confidence_score if hasattr(signal, 'ai_confidence_score') and signal.ai_confidence_score > 0 else signal.confidence_score * 10
+                
+                # PRD Rule: AI cannot override if score < 60 (REJECT zone)
+                if original_score < 60:
+                    logger.info(f"PRD Rule: AI cannot override low score signal {signal.symbol} (score: {original_score:.0f})")
+                    signal.score_breakdown["ai_filtered"] = "REJECT_ZONE"
+                    continue
+                
+                # PRD Rule: AI filters borderline (60-70) signals more strictly
+                borderline = 60 <= original_score <= 70
+                if borderline:
+                    logger.info(f"PRD: Borderline signal {signal.symbol} (score: {original_score:.0f}) - AI extra filtering")
+                
                 # Check AI decision (APPROVE, REJECT, MODIFY)
                 ai_decision = getattr(ai_result, 'ai_decision', 'APPROVE')
                 
                 # Apply REJECT decision - skip the signal
                 if ai_decision == 'REJECT':
                     logger.info(f"AI REJECTED signal {signal.symbol} - removing from results")
+                    signal.score_breakdown["ai_rejected"] = True
                     continue
+                
+                # For borderline signals, apply stricter standards
+                if borderline and ai_decision == 'APPROVE':
+                    # Check if AI confidence is high enough
+                    if ai_result.ai_confidence < 7.0:
+                        logger.info(f"Borderline signal {signal.symbol} rejected by AI (conf: {ai_result.ai_confidence:.1f})")
+                        continue
                 
                 # Enhance signal with AI analysis
                 # Combine original confidence with AI confidence (weighted average)
@@ -1025,7 +1053,11 @@ Analyze this signal and provide your assessment with MANDATORY reference to jour
                     win_rate = journal_ref.get("win_rate", 0)
                     journal_info = f"\n📓 Journal: {sample_size} trades, {win_rate*100:.0f}% win rate"
                 
-                enhanced_reasoning = f"{signal.reasoning}\n\n🧠 AI Decision: {ai_decision}\n"
+                # Add PRD classification
+                prd_class = signal.score_breakdown.get("classification", "UNKNOWN")
+                
+                enhanced_reasoning = f"{signal.reasoning}\n\n🧠 PRD Class: {prd_class}\n"
+                enhanced_reasoning += f"🧠 AI Decision: {ai_decision}\n"
                 enhanced_reasoning += f"🧠 AI Analysis: {ai_result.ai_reasoning}\n"
                 enhanced_reasoning += f"📊 Market Context: {ai_result.market_context}\n"
                 enhanced_reasoning += f"⚠️ Risk Assessment: {ai_result.risk_assessment}\n"

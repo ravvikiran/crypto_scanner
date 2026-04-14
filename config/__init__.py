@@ -152,6 +152,12 @@ class AIConfig:
     ai_temperature: float = float(os.getenv("AI_TEMPERATURE", "0.2"))
     ai_max_tokens: int = int(os.getenv("AI_MAX_TOKENS", "1000"))
     
+    # Hybrid Scoring Weights (REQ-004)
+    # Formula: Final_Score = (Rule_Score × Rule_Weight) + (AI_Score × AI_Weight)
+    # Default: 60% Rule-Based + 40% AI
+    rule_weight: float = float(os.getenv("AI_RULE_WEIGHT", "0.60"))
+    ai_weight: float = float(os.getenv("AI_WEIGHT", "0.40"))
+    
     # AI Cache settings
     cache_analysis: bool = os.getenv("CACHE_AI_ANALYSIS", "true").lower() == "true"
     cache_ttl_minutes: int = int(os.getenv("AI_CACHE_TTL_MINUTES", "60"))
