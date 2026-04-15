@@ -125,7 +125,7 @@ class AIConfig:
     # When primary provider fails (rate limit, quota exceeded), system will try next provider
     # Options: openai, anthropic, groq, gemini, minimax, ollama
     # Example: AI_PROVIDER_PRIORITY=groq,anthropic,openai,gemini,minimax,ollama
-    provider_priority: str = os.getenv("AI_PROVIDER_PRIORITY", "openai,anthropic,groq,gemini,minimax,ollama")
+    provider_priority: str = os.getenv("AI_PROVIDER_PRIORITY", "grok,gemini,openai,anthropic,minimax,ollama")
     
     # Enable automatic fallback to next provider on failure
     enable_fallback: bool = os.getenv("ENABLE_AI_FALLBACK", "true").lower() == "true"

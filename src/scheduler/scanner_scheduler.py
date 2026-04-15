@@ -217,3 +217,20 @@ class ScannerScheduler:
     def add_monitor_job(self, func: Callable, job_id: str = 'monitor_job') -> None:
         """Add a signal monitoring job - deprecated, use _add_monitoring_job instead"""
         pass
+
+
+def create_scheduler(config: dict, signal_publisher=None) -> ScannerScheduler:
+    """
+    Factory function to create and configure a ScannerScheduler instance.
+    
+    Args:
+        config: Configuration dictionary with scheduler settings
+        signal_publisher: Optional signal publisher for monitoring
+        
+    Returns:
+        Configured ScannerScheduler instance
+    """
+    scheduler = ScannerScheduler(config)
+    if signal_publisher:
+        scheduler.set_signal_publisher(signal_publisher)
+    return scheduler
