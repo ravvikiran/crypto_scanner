@@ -16,6 +16,7 @@ from models import TradingSignal, SignalDirection
 from config import get_config
 from learning import TradeJournal
 from collectors import MarketDataCollector
+from alerts import AlertManager
 
 
 class SignalPublisher:

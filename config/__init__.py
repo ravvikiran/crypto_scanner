@@ -103,7 +103,6 @@ class StrategyConfig:
     pullback_rsi_high: float = float(os.getenv("PULLBACK_RSI_HIGH", "55"))
     min_risk_reward: float = float(os.getenv("MIN_RISK_REWARD", "2.0"))
     max_risk_per_trade: float = float(os.getenv("MAX_RISK_PER_TRADE", "0.02"))
-    prd_confidence_threshold: float = float(os.getenv("PRD_CONFIDENCE_THRESHOLD", "70"))
 
 
 @dataclass

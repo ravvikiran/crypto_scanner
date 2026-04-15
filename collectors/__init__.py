@@ -284,8 +284,6 @@ class MarketDataCollector:
                     return False
         
         return True
-        
-        return candles
     
     async def get_candles_for_coins(self, coins: List[CoinData], timeframes: List[str]) -> List[CoinData]:
         """

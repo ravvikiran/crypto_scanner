@@ -53,11 +53,11 @@ class PRDSignalEngine:
         self.config = get_config()
         self.strategy = self.config.strategy
         
-        # PRD Parameters
-        self.breakout_volume_multiplier = 1.5
-        self.pullback_rsi_low = 40
-        self.pullback_rsi_high = 55
-        self.min_risk_reward = 2.0
+        # PRD Parameters - use config values with fallback to defaults
+        self.breakout_volume_multiplier = getattr(self.strategy, 'breakout_volume_multiplier', 1.5)
+        self.pullback_rsi_low = getattr(self.strategy, 'pullback_rsi_low', 40)
+        self.pullback_rsi_high = getattr(self.strategy, 'pullback_rsi_high', 55)
+        self.min_risk_reward = getattr(self.strategy, 'min_risk_reward', 2.0)
         self.max_risk_per_trade = 0.02  # 2%
         self.stop_loss_buffer = 0.015  # 1.5%
         
@@ -140,6 +140,30 @@ class PRDSignalEngine:
             last_high=recent_highs[-1] if recent_highs else None,
             last_low=recent_lows[-1] if recent_lows else None
         )
+    
+    def _calculate_targets_from_swing_levels(
+        self,
+        swing_levels: List[float],
+        entry: float,
+        is_long: bool = True
+    ) -> Tuple[Optional[float], Optional[float]]:
+        """Calculate targets from actual swing levels on chart"""
+        if not swing_levels:
+            return None, None
+        
+        targets = []
+        for level in swing_levels:
+            if is_long and level > entry:
+                targets.append(level)
+            elif not is_long and level < entry:
+                targets.append(level)
+        
+        if len(targets) >= 2:
+            return targets[0], targets[1]
+        elif len(targets) == 1:
+            return targets[0], None
+        
+        return None, None
     
     def _has_bullish_structure(self, swings: SwingPoints) -> bool:
         """Check if price has bullish structure (HH/HL)"""
@@ -285,8 +309,13 @@ class PRDSignalEngine:
             stop_loss = entry * (1 - self.max_risk_per_trade)
             risk = entry - stop_loss
         
-        target_1 = entry + (risk * 2)
-        target_2 = entry + (risk * 3)
+        target_1, target_2 = self._calculate_targets_from_swing_levels(
+            swing_points.swing_highs, entry, is_long=True
+        )
+        
+        if target_1 is None or target_2 is None:
+            target_1 = entry + (risk * 2)
+            target_2 = entry + (risk * 3)
         
         reward = target_1 - entry
         risk_reward = reward / risk if risk > 0 else 0
@@ -390,8 +419,13 @@ class PRDSignalEngine:
             stop_loss = entry * (1 + self.max_risk_per_trade)
             risk = stop_loss - entry
         
-        target_1 = entry - (risk * 2)
-        target_2 = entry - (risk * 3)
+        target_1, target_2 = self._calculate_targets_from_swing_levels(
+            swing_points.swing_lows, entry, is_long=False
+        )
+        
+        if target_1 is None or target_2 is None:
+            target_1 = entry - (risk * 2)
+            target_2 = entry - (risk * 3)
         
         reward = entry - target_1
         risk_reward = reward / risk if risk > 0 else 0
@@ -515,8 +549,13 @@ class PRDSignalEngine:
             stop_loss = entry_min * (1 - self.max_risk_per_trade)
             risk = entry_min - stop_loss
         
-        target_1 = entry_max + (risk * 2)
-        target_2 = entry_max + (risk * 3)
+        target_1, target_2 = self._calculate_targets_from_swing_levels(
+            swing_points.swing_highs, entry_max, is_long=True
+        )
+        
+        if target_1 is None or target_2 is None:
+            target_1 = entry_max + (risk * 2)
+            target_2 = entry_max + (risk * 3)
         
         reward = target_1 - entry_max
         risk_reward = reward / risk if risk > 0 else 0
@@ -621,8 +660,13 @@ class PRDSignalEngine:
             stop_loss = entry_max * (1 + self.max_risk_per_trade)
             risk = stop_loss - entry_max
         
-        target_1 = entry_min - (risk * 2)
-        target_2 = entry_min - (risk * 3)
+        target_1, target_2 = self._calculate_targets_from_swing_levels(
+            swing_points.swing_lows, entry_min, is_long=False
+        )
+        
+        if target_1 is None or target_2 is None:
+            target_1 = entry_min - (risk * 2)
+            target_2 = entry_min - (risk * 3)
         
         reward = entry_min - target_1
         risk_reward = reward / risk if risk > 0 else 0

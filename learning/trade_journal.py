@@ -84,6 +84,7 @@ class TradeJournal:
                     pass
             
             existing_data['journal_trades'] = self._trades
+            existing_data['outcomes'] = self._outcomes
             existing_data['last_updated'] = datetime.now().isoformat()
             
             with open(self._storage_file, 'w') as f:

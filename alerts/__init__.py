@@ -29,12 +29,13 @@ class AlertManager:
     def send_all_alerts(self, signals: List[TradingSignal]):
         """Send alerts through all configured channels"""
         
-        # Filter signals by minimum confidence threshold from config ( PRD style uses 0-100 scale)
+        # Filter signals by minimum confidence threshold from config (uses 0-100 scale)
         threshold = self.alerts.confidence_threshold
-        # Convert threshold to 0-10 scale for comparison
-        threshold_10 = threshold / 10 if threshold > 10 else threshold
+        # Ensure threshold is on 0-100 scale (minimum 10)
+        if threshold <= 10:
+            threshold = threshold * 10
         
-        qualified_signals = [s for s in signals if s.confidence_score >= threshold_10 or s.ai_confidence_score >= threshold]
+        qualified_signals = [s for s in signals if s.normalized_confidence >= threshold]
         
         if not qualified_signals:
             self._send_no_signals_message()

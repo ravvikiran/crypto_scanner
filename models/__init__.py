@@ -197,6 +197,17 @@ class TradingSignal:
     # AI Confidence Score (0-100)
     ai_confidence_score: float = 0
     
+    @property
+    def normalized_confidence(self) -> float:
+        """Get normalized confidence score on 0-100 scale.
+        
+        Use ai_confidence_score if available, otherwise convert confidence_score from 0-10 to 0-100.
+        This provides a consistent way to access confidence throughout the codebase.
+        """
+        if self.ai_confidence_score > 0:
+            return self.ai_confidence_score
+        return self.confidence_score * 10
+    
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary"""
         return {

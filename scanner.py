@@ -307,8 +307,8 @@ class CryptoScanner:
             logger.info("📊 Running PRD Risk Management checks...")
             risk_filtered = []
             for signal in qualified_signals:
-                # Get signal score (0-100 scale)
-                signal_score = signal.ai_confidence_score if hasattr(signal, 'ai_confidence_score') and signal.ai_confidence_score > 0 else signal.confidence_score * 10
+                # Use normalized confidence (0-100 scale)
+                signal_score = signal.normalized_confidence
                 
                 can_take, reason = self.risk_engine.should_take_signal(signal_score)
                 signal.score_breakdown["risk_check"] = reason

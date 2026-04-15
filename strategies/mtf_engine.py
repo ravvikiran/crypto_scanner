@@ -157,6 +157,60 @@ class StructureDetector:
         except Exception as e:
             logger.debug(f"Structure detection error: {e}")
             return MarketStructure.UNCERTAIN, None, None
+    
+    def get_all_swing_levels(
+        self,
+        candles: List[OHLCV],
+        lookback: int = 20
+    ) -> Tuple[List[float], List[float]]:
+        """Get all swing highs and lows for target calculation"""
+        if len(candles) < lookback:
+            return [], []
+        
+        swing_highs = []
+        swing_lows = []
+        
+        try:
+            for i in range(2, len(candles) - 2):
+                if (candles[i].high >= candles[i-2].high and
+                    candles[i].high >= candles[i-1].high and
+                    candles[i].high >= candles[i+1].high and
+                    candles[i].high >= candles[i+2].high):
+                    swing_highs.append(candles[i].high)
+                
+                if (candles[i].low <= candles[i-2].low and
+                    candles[i].low <= candles[i-1].low and
+                    candles[i].low <= candles[i+1].low and
+                    candles[i].low <= candles[i+2].low):
+                    swing_lows.append(candles[i].low)
+        except Exception as e:
+            logger.debug(f"Error getting swing levels: {e}")
+        
+        return swing_highs[-5:] if len(swing_highs) > 5 else swing_highs, swing_lows[-5:] if len(swing_lows) > 5 else swing_lows
+    
+    def calculate_targets_from_swing_levels(
+        self,
+        swing_levels: List[float],
+        entry: float,
+        is_long: bool = True
+    ) -> Tuple[Optional[float], Optional[float]]:
+        """Calculate targets from actual swing levels on chart"""
+        if not swing_levels:
+            return None, None
+        
+        targets = []
+        for level in swing_levels:
+            if is_long and level > entry:
+                targets.append(level)
+            elif not is_long and level < entry:
+                targets.append(level)
+        
+        if len(targets) >= 2:
+            return targets[0], targets[1]
+        elif len(targets) == 1:
+            return targets[0], None
+        
+        return None, None
 
 
 class EMAAlignmentChecker:
@@ -515,7 +569,8 @@ class MultiTimeframeEngine:
             pullback_level=pullback_level,
             volume_ratio=volume_ratio,
             ema_description=ema_description,
-            breakout_reason=breakout_reason
+            breakout_reason=breakout_reason,
+            hourly_candles=hourly_candles
         )
         
         return ValidationResult(
@@ -649,7 +704,8 @@ class MultiTimeframeEngine:
         pullback_level: Optional[str],
         volume_ratio: float,
         ema_description: str,
-        breakout_reason: str
+        breakout_reason: str,
+        hourly_candles: Optional[List[OHLCV]] = None
     ) -> TradingSignal:
         """Generate final trading signal"""
         
@@ -691,15 +747,33 @@ class MultiTimeframeEngine:
             if risk <= 0:
                 logger.warning(f"{coin.symbol}: Invalid LONG risk (risk={risk:.4f}), using 1% fallback")
                 risk = current_price * 0.01
-            target_1 = entry_max + (risk * self.risk_reward_ratio)
-            target_2 = entry_max + (risk * self.risk_reward_ratio * 1.5)
+            
+            t1, t2 = None, None
+            if hourly_candles:
+                swing_highs, swing_lows = self.structure_detector.get_all_swing_levels(hourly_candles)
+                t1, t2 = self.structure_detector.calculate_targets_from_swing_levels(swing_highs, entry_max, is_long=True)
+            
+            if t1 and t2:
+                target_1, target_2 = t1, t2
+            else:
+                target_1 = entry_max + (risk * self.risk_reward_ratio)
+                target_2 = entry_max + (risk * self.risk_reward_ratio * 1.5)
         else:
             risk = stop_loss - entry_max
             if risk <= 0:
                 logger.warning(f"{coin.symbol}: Invalid SHORT risk (risk={risk:.4f}), using 1% fallback")
                 risk = current_price * 0.01
-            target_1 = entry_min - (risk * self.risk_reward_ratio)
-            target_2 = entry_min - (risk * self.risk_reward_ratio * 1.5)
+            
+            t1, t2 = None, None
+            if hourly_candles:
+                swing_highs, swing_lows = self.structure_detector.get_all_swing_levels(hourly_candles)
+                t1, t2 = self.structure_detector.calculate_targets_from_swing_levels(swing_lows, entry_min, is_long=False)
+            
+            if t1 and t2:
+                target_1, target_2 = t1, t2
+            else:
+                target_1 = entry_min - (risk * self.risk_reward_ratio)
+                target_2 = entry_min - (risk * self.risk_reward_ratio * 1.5)
         
         reward = abs(target_1 - entry_max)
         risk_reward = reward / risk if risk > 0 else 0

@@ -269,7 +269,7 @@ class SignalScorer:
             - "WEAK": Score 60-70
             - "QUALIFIED": Score 70+
         """
-        score = signal.ai_confidence_score if hasattr(signal, 'ai_confidence_score') else signal.confidence_score * 10
+        score = signal.normalized_confidence
         
         if score < self.SCORE_REJECT:
             return "REJECT"
@@ -280,7 +280,7 @@ class SignalScorer:
     
     def should_send_to_ai(self, signal: TradingSignal) -> bool:
         """Check if signal should be sent to AI for validation (PRD: 70+)"""
-        score = signal.ai_confidence_score if hasattr(signal, 'ai_confidence_score') else signal.confidence_score * 10
+        score = signal.normalized_confidence
         return score >= self.SCORE_AI_SEND
     
     def is_qualified(self, signal: TradingSignal) -> bool:

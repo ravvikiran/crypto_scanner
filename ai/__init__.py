@@ -997,8 +997,8 @@ Analyze this signal and provide your assessment with MANDATORY reference to jour
             ai_result = result_map.get(signal.id)
             
             if ai_result:
-                # Get original PRD score (0-100)
-                original_score = signal.ai_confidence_score if hasattr(signal, 'ai_confidence_score') and signal.ai_confidence_score > 0 else signal.confidence_score * 10
+                # Get normalized confidence score (0-100)
+                original_score = signal.normalized_confidence
                 
                 # PRD Rule: AI cannot override if score < 60 (REJECT zone)
                 if original_score < 60:
@@ -1163,6 +1163,17 @@ Output JSON format:
         
         data_str = "\n".join(price_data)
         
+        ema20_str = f"${coin.ema_20:.4f}" if coin.ema_20 else "N/A"
+        ema50_str = f"${coin.ema_50:.4f}" if coin.ema_50 else "N/A"
+        ema100_str = f"${coin.ema_100:.4f}" if coin.ema_100 else "N/A"
+        ema200_str = f"${coin.ema_200:.4f}" if coin.ema_200 else "N/A"
+        rsi_str = f"{coin.rsi:.1f}" if coin.rsi else "N/A"
+        atr_str = f"{coin.atr:.4f}" if coin.atr else "N/A"
+        
+        bb_upper_str = f"${coin.bb_upper:.4f}" if coin.bb_upper else "N/A"
+        bb_middle_str = f"${coin.bb_middle:.4f}" if coin.bb_middle else "N/A"
+        bb_lower_str = f"${coin.bb_lower:.4f}" if coin.bb_lower else "N/A"
+        
         market_data = f"""
 CRYPTO MARKET ANALYSIS
 =====================
@@ -1172,17 +1183,17 @@ CURRENT PRICE: ${coin.current_price:.4f}
 24H CHANGE: {coin.price_change_percent_24h:.2f}%
 
 TECHNICAL INDICATORS:
-- EMA20: ${coin.ema_20:.4f if coin.ema_20 else 'N/A'}
-- EMA50: ${coin.ema_50:.4f if coin.ema_50 else 'N/A'}
-- EMA100: ${coin.ema_100:.4f if coin.ema_100 else 'N/A'}
-- EMA200: ${coin.ema_200:.4f if coin.ema_200 else 'N/A'}
-- RSI (14): {coin.rsi:.1f if coin.rsi else 'N/A'}
-- ATR: {coin.atr:.4f if coin.atr else 'N/A'}
+- EMA20: {ema20_str}
+- EMA50: {ema50_str}
+- EMA100: {ema100_str}
+- EMA200: {ema200_str}
+- RSI (14): {rsi_str}
+- ATR: {atr_str}
 
 BOLLINGER BANDS:
-- Upper: ${coin.bb_upper:.4f if coin.bb_upper else 'N/A'}
-- Middle: ${coin.bb_middle:.4f if coin.bb_middle else 'N/A'}
-- Lower: ${coin.bb_lower:.4f if coin.bb_lower else 'N/A'}
+- Upper: {bb_upper_str}
+- Middle: {bb_middle_str}
+- Lower: {bb_lower_str}
 
 TREND: {coin.trend.value}
 BTC TREND: {btc_trend.value}
