@@ -388,7 +388,7 @@ Examples:
   python main.py continuous              Run continuous scanner
   python main.py stats                   Show performance statistics
   python main.py test                    Test alert configuration
-  python main.py --schedule              Run with scheduler (daily at 3 PM Mon-Fri)
+  python main.py --schedule              Run with scheduler (continuous 24x7, every 15 min)
         """
     )
     
@@ -396,7 +396,7 @@ Examples:
     parser.add_argument(
         '--schedule',
         action='store_true',
-        help='Run with scheduler (daily at 3 PM Mon-Fri)'
+        help='Run with scheduler (continuous 24x7 every 15 minutes)'
     )
     
     subparsers = parser.add_subparsers(dest="command", help="Available commands")

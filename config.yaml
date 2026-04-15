@@ -64,15 +64,12 @@ data:
 scheduler:
   timezone: "Asia/Kolkata"
 
-  # Run mode: "continuous" for 15-min scans, "scheduled" for daily scan at specific time
+  # Run mode: "continuous" for 15-min scans 24x7
   run_mode: "continuous"  # Options: "continuous" or "scheduled"
   continuous_interval_minutes: 15  # Scan every 15 minutes in continuous mode
 
-  # Run daily at 3:00 PM IST (only used when run_mode is "scheduled")
-  scan_time_hour: 15
-  scan_time_minute: 0
-
-  run_days: [1, 2, 3, 4, 5]  # Monday to Friday
+  # Scanner runs 24x7 in continuous mode (market never closes for crypto)
+  run_days: [0, 1, 2, 3, 4, 5, 6]  # All days (Mon-Sun)
 
   # PRD: Multi-Timeframe Scan Intervals
   # 15m scan → every 5 min
@@ -84,11 +81,11 @@ scheduler:
     "4h": 30
     "daily": 120
 
-  # Market hours (for crypto, you might adjust these)
+  # Market hours (9 AM to 12 AM IST - crypto works 24x7)
   market_open_hour: 9
-  market_open_minute: 15
-  market_close_hour: 15
-  market_close_minute: 30
+  market_open_minute: 0
+  market_close_hour: 23
+  market_close_minute: 59
 
 # Signal Intelligence Engine (SIE)
 signal_intelligence:
