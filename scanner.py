@@ -224,13 +224,20 @@ class CryptoScanner:
             stablecoins = ["USDT", "USDC", "DAI", "BUSD", "USDS", "USD1", "USDG", "USDF", "TUSD", "USDD", "FRAX", "USDE"]
             coins = [c for c in coins if c.symbol not in stablecoins]
             
+            logger.info(f"Scanning {len(coins)} coins for signals...")
+            
             for coin in coins:
                 # Calculate indicators for primary timeframe
                 primary_tf = self.config.scanner.timeframes[0] if self.config.scanner.timeframes else "1h"
                 coin = self.indicator_engine.calculate_all_indicators(coin, primary_tf)
                 
+                # Log trend for debugging
+                logger.debug(f"{coin.symbol}: trend={coin.trend.value}, rsi={coin.rsi:.1f if coin.rsi else 'None'}, ema20={coin.ema_20}")
+                
                 # Run all strategy engines
                 signals = self.strategy_engine.scan_all_strategies(coin, btc_trend, primary_tf)
+                if signals:
+                    logger.info(f"{coin.symbol}: Generated {len(signals)} signals on {primary_tf}")
                 
                 # Score and enrich signals
                 for signal in signals:

@@ -201,7 +201,9 @@ This scanner is for educational purposes. Always do your own research before mak
 
 ## Version History
 
-### v2.2.0 - PRD Signal Engine Enhanced (Current)
+### v2.2.1 - Bug Fixes (Current)
+- **Fixed:** PRD parameters now use config values (StrategyConfig)
+- **Fixed:** Consolidated duplicate confidence threshold configs
 - PRD signal logic (Breakout, Pullback, Trend)
 - AI Confidence Scoring (0-100)
 - Risk Management Layer

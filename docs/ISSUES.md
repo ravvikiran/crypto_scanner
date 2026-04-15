@@ -21,22 +21,22 @@ When BTC is in a bearish trend, the PRD engine now generates breakout/pullback s
 ---
 
 ### 1.2 PRD Parameters Not Using Config Values
-**Status:** Bug - Medium Priority
+**Status:** Resolved ✅
 
-In `strategies/prd_signal_engine.py`, the PRD engine uses hardcoded values instead of config:
-
+In `strategies/prd_signal_engine.py`, the PRD engine now uses config values:
 ```python
-# Current (hardcoded):
-self.breakout_volume_multiplier = 1.5
-self.pullback_rsi_low = 40
-self.pullback_rsi_high = 55
-self.min_risk_reward = 2.0
-
-# Should use config:
-self.breakout_volume_multiplier = self.strategy.breakout_volume_multiplier
+# Current (using config):
+self.breakout_volume_multiplier = getattr(self.strategy, 'breakout_volume_multiplier', 1.5)
+self.pullback_rsi_low = getattr(self.strategy, 'pullback_rsi_low', 40)
+self.pullback_rsi_high = getattr(self.strategy, 'pullback_rsi_high', 55)
+self.min_risk_reward = getattr(self.strategy, 'min_risk_reward', 2.0)
 ```
 
-**Fix Needed:** Update PRDSignalEngine `__init__` to use `self.config.strategy` values.
+Uses `StrategyConfig` values with env variable support:
+- `BREAKOUT_VOLUME_MULTIPLIER` (default: 1.5)
+- `PULLBACK_RSI_LOW` (default: 40)
+- `PULLBACK_RSI_HIGH` (default: 55)
+- `MIN_RISK_REWARD` (default: 2.0)
 
 ---
 
@@ -109,13 +109,13 @@ The LSP shows type warnings for:
 ## 5. Configuration Issues
 
 ### 3.1 Duplicate Configuration Definition
-**Status:** Bug - Medium Priority
+**Status:** Resolved ✅
 
-PRD parameters are defined in both `ScannerConfig` and `StrategyConfig`:
-- `ScannerConfig.prd_min_confidence` (70.0)
-- `StrategyConfig.prd_confidence_threshold` (70.0)
+PRD parameters are consolidated in `StrategyConfig`:
+- `StrategyConfig.prd_min_confidence` - now used for threshold
+- PRD params in `StrategyConfig`: breakout_volume_multiplier, pullback_rsi_low, pullback_rsi_high, min_risk_reward
 
-**Fix:** Consolidate to one location (StrategyConfig recommended).
+The `ScannerConfig.prd_min_confidence` is still used as fallback (70.0).
 
 ---
 
@@ -206,8 +206,8 @@ No unit tests exist for:
 ## 9. Recommended Fixes
 
 ### Priority 1 (High Impact)
-1. Fix PRD config values usage in PRDSignalEngine
-2. Consolidate duplicate confidence threshold configs
+1. ~~Fix PRD config values usage in PRDSignalEngine~~ - **Resolved ✅**
+2. ~~Consolidate duplicate confidence threshold configs~~ - **Resolved ✅**
 
 ### Priority 2 (Medium Impact)
 3. Standardize confidence scoring between PRD and existing strategies
@@ -236,5 +236,5 @@ No unit tests exist for:
 
 ---
 
-*Document generated: 2026-04-14*
-*Scanner version: 2.2.0*
+*Document generated: 2026-04-15*
+*Scanner version: 2.2.1*

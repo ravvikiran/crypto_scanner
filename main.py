@@ -106,6 +106,12 @@ def run_scheduled(config: dict, logger):
             
             logger.info(f"Scheduled scan complete. {len(signals)} signals generated.")
         finally:
+            # Cancel all pending tasks before closing the loop
+            pending = asyncio.all_tasks(loop)
+            for task in pending:
+                task.cancel()
+            # Wait for tasks to complete their cancellation
+            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
             loop.close()
     
     scheduler.add_job(scan_job)

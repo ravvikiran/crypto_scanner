@@ -355,7 +355,7 @@ Timeframe: 4h
 |------|---------|
 | `scanner.py` | Main orchestration |
 | `main.py` | CLI entry point |
-| `strategies/prd_signal_engine.py` | Breakout/pullback |
+| `strategies/prd_signal_engine.py` | Breakout/pullback (v2.2.1) |
 | `strategies/mtf_engine.py` | Multi-timeframe |
 | `engines/confluence_engine.py` | Signal scoring |
 | `ai/__init__.py` | AI enhancement |
@@ -365,4 +365,31 @@ Timeframe: 4h
 
 ---
 
+**Version:** 2.2.1 (Bug Fixes)
+
 For issues or questions, check the logs in `logs/scanner.log`.
+
+---
+
+# Version History
+
+## v2.2.1 - Bug Fixes
+- PRD parameters now use config values (StrategyConfig)
+- Consolidated duplicate confidence threshold configs
+
+## v2.2.0 - PRD Signal Engine Enhanced
+- PRD signal logic (Breakout, Pullback, Trend)
+- AI Confidence Scoring (0-100)
+- Risk Management Layer
+- PRD output format
+- Signal Publisher with SL/TP monitoring
+- Continuous scanning mode
+
+## v2.0.0 - Enhanced
+- AI-first architecture with journal awareness
+- Market Regime Engine
+- Confluence Scoring Engine
+
+## v1.0.0 - Initial Release
+- Multi-strategy scanning
+- Rule-based confidence scoring
