@@ -121,6 +121,8 @@ def run_scheduled(config: dict, logger):
     cfg = get_config()
     if cfg.alerts.telegram_bot_token and cfg.alerts.telegram_chat_id:
         logger.info("Telegram bot is configured - ready to send alerts")
+        alert_mgr = AlertManager()
+        alert_mgr.send_startup_alert()
     else:
         logger.warning("Telegram bot not configured - alerts will not be sent")
     

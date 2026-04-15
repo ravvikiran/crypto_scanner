@@ -24,6 +24,19 @@ class AlertManager:
         self.alerts = self.config.alerts
         self._duplicate_checker = SignalDuplicateChecker(cooldown_hours=24)
         self._last_no_signals_message: Optional[datetime] = None
+        self._startup_alert_sent = False
+    
+    def send_startup_alert(self):
+        """Send a startup alert to confirm the scanner is running"""
+        if self._startup_alert_sent:
+            return
+        if not self.alerts.telegram_bot_token:
+            return
+        
+        self._startup_alert_sent = True
+        
+        message = "🔄 <b>QuantGrid Scanner Started</b>\n\nScanner is now running and monitoring for signals.\n\n⏰ Scan interval: every 15 minutes"
+        self._send_telegram(message)
     
     def send_all_alerts(self, signals: List[TradingSignal]):
         """Send alerts through all configured channels"""
