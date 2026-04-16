@@ -69,10 +69,16 @@ class ScannerScheduler:
         self.mtf_jobs = {}
         
         self._signal_publisher = None
+        
+        self._alert_manager = None
     
     def set_signal_publisher(self, publisher):
         """Set the signal publisher for monitoring."""
         self._signal_publisher = publisher
+    
+    def set_alert_manager(self, alert_manager):
+        """Set the alert manager for heartbeat messages."""
+        self._alert_manager = alert_manager
     
     def add_job(self, func: Callable, job_id: str = 'scanner_job') -> None:
         """
@@ -184,6 +190,35 @@ class ScannerScheduler:
         )
         
         logger.info(f"Signal monitoring job scheduled: every {monitor_interval} minutes")
+        
+        self._add_heartbeat_job()
+    
+    def _add_heartbeat_job(self):
+        """Add heartbeat job to send 'still alive' message every 4 hours"""
+        heartbeat_interval = 240
+        
+        def heartbeat_func():
+            if self._alert_manager:
+                logger.info("Sending heartbeat message...")
+                try:
+                    self._alert_manager.send_heartbeat()
+                except Exception as e:
+                    logger.error(f"Error sending heartbeat: {e}")
+        
+        trigger = IntervalTrigger(
+            minutes=heartbeat_interval,
+            timezone=self.timezone
+        )
+        
+        self.scheduler.add_job(
+            heartbeat_func,
+            trigger=trigger,
+            id='heartbeat_job',
+            name='Heartbeat (Every 4 hours)',
+            replace_existing=True
+        )
+        
+        logger.info(f"Heartbeat job scheduled: every {heartbeat_interval} minutes (4 hours)")
     
     def start(self) -> None:
         if not self.scheduler.running:

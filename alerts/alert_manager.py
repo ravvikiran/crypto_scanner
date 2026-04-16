@@ -312,6 +312,14 @@ class AlertManager:
         except Exception as e:
             logger.error(f"Error generating TradingView alerts: {e}")
     
+    def send_heartbeat(self):
+        """Send a periodic heartbeat message to confirm app is running"""
+        if not self.alerts.telegram_bot_token:
+            return
+        
+        message = "💚 <b>QuantGrid Scanner - Heartbeat</b>\n\n✅ Application is running and monitoring for signals.\n\n⏰ Next scan in ~15 minutes\n⏱️ Heartbeat: Every 4 hours"
+        self._send_telegram(message)
+    
     def send_test_alert(self) -> bool:
         """Send a test alert to verify configuration"""
         try:

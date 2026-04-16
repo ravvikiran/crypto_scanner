@@ -79,6 +79,9 @@ def run_scheduled(config: dict, logger):
     scheduler = ScannerScheduler(config)
     scheduler.set_signal_publisher(signal_publisher)
     
+    alert_mgr = AlertManager()
+    scheduler.set_alert_manager(alert_mgr)
+    
     def scan_job():
         """Run scan in a thread-safe manner using a new event loop"""
         import asyncio
@@ -121,7 +124,6 @@ def run_scheduled(config: dict, logger):
     cfg = get_config()
     if cfg.alerts.telegram_bot_token and cfg.alerts.telegram_chat_id:
         logger.info("Telegram bot is configured - ready to send alerts")
-        alert_mgr = AlertManager()
         alert_mgr.send_startup_alert()
     else:
         logger.warning("Telegram bot not configured - alerts will not be sent")
