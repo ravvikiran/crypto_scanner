@@ -59,9 +59,9 @@ class ScannerConfig:
     timeframes: List[str] = field(default_factory=lambda: os.getenv("TIMEFRAMES", "4h,daily").split(","))
     
     # Multi-timeframe configuration for enhanced strategy
-    mtf_timeframes: List[str] = field(default_factory=lambda: ["daily", "1h", "15m"])
-    enable_mtf_strategy: bool = True
-    mtf_min_confidence: float = 7.0
+    mtf_timeframes: List[str] = field(default_factory=lambda: os.getenv("MTF_TIMEFRAMES", "daily,1h,15m").split(","))
+    enable_mtf_strategy: bool = os.getenv("ENABLE_MTF_STRATEGY", "true").lower() == "true"
+    mtf_min_confidence: float = float(os.getenv("MTF_MIN_CONFIDENCE", "7.0"))
     
     # PRD Signal Engine Configuration
     enable_prd_strategy: bool = os.getenv("ENABLE_PRD_STRATEGY", "true").lower() == "true"
@@ -153,9 +153,9 @@ class AIConfig:
     
     # Hybrid Scoring Weights (REQ-004)
     # Formula: Final_Score = (Rule_Score × Rule_Weight) + (AI_Score × AI_Weight)
-    # Default: 60% Rule-Based + 40% AI
-    rule_weight: float = float(os.getenv("AI_RULE_WEIGHT", "0.60"))
-    ai_weight: float = float(os.getenv("AI_WEIGHT", "0.40"))
+    # Default: 20% Rule-Based + 80% AI (AI is primary decision maker)
+    rule_weight: float = float(os.getenv("AI_RULE_WEIGHT", "0.20"))
+    ai_weight: float = float(os.getenv("AI_WEIGHT", "0.80"))
     
     # AI Cache settings
     cache_analysis: bool = os.getenv("CACHE_AI_ANALYSIS", "true").lower() == "true"
