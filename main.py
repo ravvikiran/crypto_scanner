@@ -82,6 +82,15 @@ def run_scheduled(config: dict, logger):
     alert_mgr = AlertManager()
     scheduler.set_alert_manager(alert_mgr)
     
+    # Initialize and start Telegram bot for incoming messages and polling
+    from alerts.telegram_bot import create_telegram_bot
+    telegram_bot = create_telegram_bot()
+    if telegram_bot:
+        telegram_bot.start()
+        logger.info("✅ Telegram bot polling started - ready to receive commands")
+    else:
+        logger.warning("⚠️ Telegram bot not initialized - check TELEGRAM_BOT_TOKEN configuration")
+    
     def scan_job():
         """Run scan in a thread-safe manner using a new event loop"""
         import asyncio
@@ -129,10 +138,12 @@ def run_scheduled(config: dict, logger):
     from config import get_config
     cfg = get_config()
     if cfg.alerts.telegram_bot_token and cfg.alerts.telegram_chat_id:
-        logger.info("Telegram bot is configured - ready to send alerts")
+        logger.info("✅ Telegram bot is configured - ready to send alerts")
         alert_mgr.send_startup_alert()
+        logger.info("📤 Startup alert sent to Telegram")
     else:
-        logger.warning("Telegram bot not configured - alerts will not be sent")
+        logger.warning("⚠️ Telegram bot not fully configured - alerts will not be sent")
+        logger.warning("   Missing: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID")
     
     logger.info("Signal monitoring active - checking SL/TP every 15 minutes")
     logger.info("Press Ctrl+C to stop")

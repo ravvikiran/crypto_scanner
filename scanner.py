@@ -232,7 +232,9 @@ class CryptoScanner:
                 coin = self.indicator_engine.calculate_all_indicators(coin, primary_tf)
                 
                 # Log trend for debugging
-                logger.debug(f"{coin.symbol}: trend={coin.trend.value}, rsi={coin.rsi:.1f if coin.rsi else 'None'}, ema20={coin.ema_20}")
+                rsi_str = f"{coin.rsi:.1f}" if coin.rsi is not None else "None"
+                ema20_str = f"{coin.ema_20:.2f}" if coin.ema_20 is not None else "None"
+                logger.debug(f"{coin.symbol}: trend={coin.trend.value}, rsi={rsi_str}, ema20={ema20_str}")
                 
                 # Run all strategy engines
                 signals = self.strategy_engine.scan_all_strategies(coin, btc_trend, primary_tf)
@@ -527,13 +529,15 @@ class CryptoScanner:
                 if btc:
                     btc_price = btc.current_price
             
+            regime_value = self.current_market_regime.value if self.current_market_regime else "UNKNOWN"
+            
             self.tracker.save_scan_result(
                 final_signals,
                 scan_duration,
                 btc_trend.value,
                 btc_price,
                 market_regime,
-                self.current_market_regime.value  # New: detailed regime
+                regime_value
             )
             
             # Phase 4: Add signals to learning tracker
@@ -550,6 +554,8 @@ class CryptoScanner:
             
         except Exception as e:
             logger.error(f"Scan error: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return []
     
     async def _get_btc_trend(self) -> TrendDirection:
