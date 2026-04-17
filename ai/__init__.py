@@ -1285,3 +1285,7 @@ Return NO_SIGNAL if no clear setup exists.
         except Exception as e:
             logger.error(f"AI signal generation error for {coin.symbol}: {e}")
             return None
+
+
+# Import signal validation agent
+from .signal_validation_agent import AISignalValidationAgent, SignalValidationResult, SignalDecision

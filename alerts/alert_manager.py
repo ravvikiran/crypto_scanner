@@ -25,6 +25,7 @@ class AlertManager:
         self._duplicate_checker = SignalDuplicateChecker(cooldown_hours=24)
         self._last_no_signals_message: Optional[datetime] = None
         self._startup_alert_sent = False
+        self._market_sentiment_enabled = getattr(self.alerts, 'use_market_sentiment_filter', True)
     
     def send_startup_alert(self):
         """Send a startup alert to confirm the scanner is running"""
@@ -38,8 +39,14 @@ class AlertManager:
         message = "🔄 <b>QuantGrid Scanner Started</b>\n\nScanner is now running and monitoring for signals.\n\n⏰ Scan interval: every 15 minutes"
         self._send_telegram(message)
     
-    def send_all_alerts(self, signals: List[TradingSignal]):
-        """Send alerts through all configured channels"""
+    def send_all_alerts(self, signals: List[TradingSignal], market_sentiment=None):
+        """
+        Send alerts through all configured channels.
+        
+        Args:
+            signals: List of trading signals
+            market_sentiment: Optional MarketSentimentScore for filtering
+        """
         
         threshold = self.alerts.confidence_threshold
         if threshold <= 10:
@@ -47,8 +54,12 @@ class AlertManager:
         
         qualified_signals = [s for s in signals if s.normalized_confidence >= threshold]
         
+        # NEW: Filter signals by market sentiment if enabled
+        if self._market_sentiment_enabled and market_sentiment:
+            qualified_signals = self._filter_signals_by_sentiment(qualified_signals, market_sentiment)
+        
         if not qualified_signals:
-            self._send_no_signals_message()
+            self._send_no_signals_message(market_sentiment)
             return
         
         signals_to_send = []
@@ -63,11 +74,141 @@ class AlertManager:
         
         for signal in signals_to_send:
             message = signal.to_alert_string()
+            # Add market sentiment info to message
+            if market_sentiment:
+                message += self._append_sentiment_info(market_sentiment)
             self._send_telegram(message)
-            self._send_discord_single(signal)
-            self._send_email([signal])
+            self._send_discord_single(signal, market_sentiment)
+            self._send_email([signal], market_sentiment)
     
-    def _send_no_signals_message(self):
+    def send_trend_alerts(self, trend_alerts: List):
+        """
+        Send market trend alerts through all configured channels.
+        
+        Args:
+            trend_alerts: List of TrendAlert objects
+        """
+        
+        if not trend_alerts:
+            return
+        
+        for alert in trend_alerts:
+            # Send via Telegram
+            self._send_telegram(alert.message)
+            
+            # Send via Discord if available
+            if self.alerts.discord_webhook_url:
+                self._send_discord_trend_alert(alert)
+            
+            logger.info(f"Trend alert sent: {alert.alert_type.value}")
+    
+    def _send_discord_trend_alert(self, trend_alert):
+        """Send trend alert via Discord"""
+        
+        try:
+            # Color based on alert type
+            if "BULLISH" in trend_alert.alert_type.value:
+                color = 0x00FF00  # Green
+            elif "BEARISH" in trend_alert.alert_type.value:
+                color = 0xFF0000  # Red
+            else:
+                color = 0xFFA500  # Orange
+            
+            embed = {
+                "title": trend_alert.alert_type.value,
+                "description": trend_alert.message,
+                "color": color,
+                "fields": [
+                    {"name": "Previous Score", "value": f"{trend_alert.previous_score:.0f}/100", "inline": True},
+                    {"name": "Current Score", "value": f"{trend_alert.current_score:.0f}/100", "inline": True},
+                    {"name": "Impact Level", "value": trend_alert.impact_level.upper(), "inline": True}
+                ],
+                "footer": {"text": f"Timestamp: {trend_alert.timestamp.strftime('%Y-%m-%d %H:%M:%S')}"}
+            }
+            
+            data = {"content": "", "embeds": [embed]}
+            
+            response = requests.post(
+                self.alerts.discord_webhook_url,
+                json=data,
+                timeout=10
+            )
+            
+            if response.status_code in [200, 204]:
+                logger.debug(f"Discord trend alert sent: {trend_alert.alert_type.value}")
+            else:
+                logger.error(f"Discord trend alert failed: {response.status_code}")
+                
+        except Exception as e:
+            logger.error(f"Error sending Discord trend alert: {e}")
+    
+    def _filter_signals_by_sentiment(self, signals: List[TradingSignal], market_sentiment) -> List[TradingSignal]:
+        """
+        Filter signals based on market sentiment favorability.
+        
+        Returns only signals that align with market sentiment:
+        - LONG signals: Keep if market is bullish
+        - SHORT signals: Keep if market is bearish
+        - In neutral sentiment: Keep only high-confidence signals
+        """
+        
+        if not market_sentiment:
+            return signals
+        
+        filtered = []
+        
+        for signal in signals:
+            is_long = signal.direction.value == "LONG"
+            
+            # Check sentiment favorability
+            if is_long:
+                is_favorable = market_sentiment.sentiment.value in ["VERY_BULLISH", "BULLISH"]
+            else:  # SHORT
+                is_favorable = market_sentiment.sentiment.value in ["VERY_BEARISH", "BEARISH"]
+            
+            # In NEUTRAL sentiment, be more strict
+            if market_sentiment.sentiment.value == "NEUTRAL":
+                if is_long and market_sentiment.market_strength > 55:
+                    is_favorable = True
+                elif not is_long and market_sentiment.market_strength < 45:
+                    is_favorable = True
+                else:
+                    # In neutral, only allow very high confidence signals
+                    is_favorable = signal.normalized_confidence >= 75
+            
+            if is_favorable:
+                filtered.append(signal)
+                logger.info(
+                    f"Signal {signal.symbol} {signal.direction.value} kept - "
+                    f"favorable for {market_sentiment.sentiment.value}"
+                )
+            else:
+                logger.info(
+                    f"Signal {signal.symbol} {signal.direction.value} filtered - "
+                    f"not favorable for {market_sentiment.sentiment.value}"
+                )
+        
+        return filtered
+    
+    def _append_sentiment_info(self, market_sentiment) -> str:
+        """Append market sentiment information to alert message"""
+        
+        sentiment_str = f"""
+
+📊 <b>Market Context</b>
+Sentiment: {market_sentiment.sentiment.value} ({market_sentiment.score:.0f}/100)
+Gainers: {market_sentiment.gainers_pct:.0f}% | Losers: {market_sentiment.losers_pct:.0f}%
+Market Strength: {market_sentiment.market_strength:.0f}/100
+Altcoin Strength: {market_sentiment.altcoin_strength:.0f}/100
+Volatility: {market_sentiment.volatility_level.upper()}
+BTC Trend: {market_sentiment.btc_trend.value}
+
+ℹ️ {market_sentiment.reason}
+"""
+        
+        return sentiment_str
+    
+    def _send_no_signals_message(self, market_sentiment=None):
         """Send message when no signals meet confidence threshold"""
         now = datetime.now()
         
@@ -78,9 +219,15 @@ class AlertManager:
         self._last_no_signals_message = now
         
         message = "📊 No coins met confidence threshold (≥6.0) this scan."
+        
+        # Include market sentiment info if available
+        if market_sentiment:
+            message += f"\n\n📈 Market Status: {market_sentiment.sentiment.value} ({market_sentiment.score:.0f}/100)\n"
+            message += f"Reason: {market_sentiment.reason}"
+        
         self._send_telegram(message)
     
-    def _send_discord_single(self, signal: TradingSignal):
+    def _send_discord_single(self, signal: TradingSignal, market_sentiment=None):
         """Send single signal via Discord webhook"""
         if not self.alerts.discord_webhook_url:
             return
@@ -243,7 +390,7 @@ class AlertManager:
         except Exception as e:
             logger.error(f"Error sending Discord alert: {e}")
     
-    def _send_email(self, signals: List[TradingSignal]):
+    def _send_email(self, signals: List[TradingSignal], market_sentiment=None):
         """Send email notification"""
         try:
             if not signals:

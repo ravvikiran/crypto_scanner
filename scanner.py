@@ -21,11 +21,14 @@ from filters import BitcoinFilter
 from alerts import AlertManager
 from dashboard import Dashboard
 from storage import PerformanceTracker
-from ai import AISignalAnalyzer, AISignalGenerator
+from ai import AISignalAnalyzer, AISignalGenerator, AISignalValidationAgent
+from ai.market_sentiment_analyzer import AIMarketSentimentAnalyzer, MarketSentimentMonitor
 from reasoning import HybridReasoner
 from learning import SignalTracker, AccuracyScorer, ResolutionChecker, LearningEngine, TradeJournal, SelfAdaptationEngine
 from engines import (
     MarketRegimeEngine, MarketRegime,
+    MarketSentimentEngine, MarketSentiment,
+    MarketTrendAlertEngine,
     CoinFilterEngine,
     ConfluenceEngine,
     PositionSizerEngine,
@@ -70,6 +73,11 @@ class CryptoScanner:
         
         # Initialize NEW Enhanced Engines
         self.market_regime_engine = MarketRegimeEngine()
+        self.market_sentiment_engine = MarketSentimentEngine()
+        self.ai_sentiment_analyzer = AIMarketSentimentAnalyzer()
+        self.sentiment_monitor = MarketSentimentMonitor()
+        self.trend_alert_engine = MarketTrendAlertEngine()
+        self.signal_validation_agent = AISignalValidationAgent()
         self.coin_filter_engine = CoinFilterEngine()
         self.confluence_engine = ConfluenceEngine()
         self.position_sizer = PositionSizerEngine()
@@ -89,6 +97,8 @@ class CryptoScanner:
         self.last_scan_time: Optional[datetime] = None
         self.last_signals: List[TradingSignal] = []
         self.current_market_regime = MarketRegime.RANGING
+        self.current_market_sentiment = None  # Store latest market sentiment
+        self.last_trend_alerts: List = []  # Store latest trend alerts
         
         # Configure logging
         self._setup_logging()
@@ -151,6 +161,11 @@ class CryptoScanner:
             
             # Step 2: Get top coins
             coins = await self._get_top_coins()
+            
+            # NEW: Step 2a - Analyze Market Sentiment (before processing coins)
+            logger.info("=" * 60)
+            logger.info("📈 Analyzing Market Sentiment...")
+            logger.info("=" * 60)
             
             if not coins:
                 logger.warning("No coins fetched")
@@ -216,6 +231,78 @@ class CryptoScanner:
                         mtf_signals.append(signal)
                 
                 logger.info(f"MTF Strategy: {len(mtf_signals)} signals generated")
+            
+            # NEW: Step 3c - Market Sentiment Analysis (using all coins data)
+            logger.info("=" * 60)
+            logger.info("🎯 Market Sentiment Analysis...")
+            logger.info("=" * 60)
+            
+            # Calculate market sentiment
+            try:
+                market_sentiment_score = self.market_sentiment_engine.analyze_market_sentiment(
+                    btc_coin=btc_coin_data,
+                    all_coins=coins
+                )
+                self.current_market_sentiment = market_sentiment_score
+                
+                # Log sentiment details
+                logger.info(f"Market Sentiment: {market_sentiment_score.sentiment.value}")
+                logger.info(f"  Score: {market_sentiment_score.score:.1f}/100")
+                logger.info(f"  Gainers: {market_sentiment_score.gainers_pct:.1f}% | Losers: {market_sentiment_score.losers_pct:.1f}%")
+                logger.info(f"  Market Strength: {market_sentiment_score.market_strength:.1f}/100")
+                logger.info(f"  Altcoin Strength: {market_sentiment_score.altcoin_strength:.1f}/100")
+                logger.info(f"  Volatility: {market_sentiment_score.volatility_level}")
+                logger.info(f"  Reason: {market_sentiment_score.reason}")
+                
+                # Try to get AI-powered insights if available
+                if self.ai_sentiment_analyzer.is_available:
+                    logger.info("Getting AI market insights...")
+                    try:
+                        # Get top gainers and losers for AI analysis
+                        sorted_coins = sorted(coins, key=lambda c: c.price_change_percent_24h, reverse=True)
+                        top_gainers = sorted_coins[:5] if len(sorted_coins) > 5 else sorted_coins
+                        top_losers = sorted(coins, key=lambda c: c.price_change_percent_24h)[:5]
+                        
+                        ai_insights = await self.ai_sentiment_analyzer.analyze_sentiment_with_ai(
+                            sentiment_score=market_sentiment_score,
+                            btc_coin=btc_coin_data,
+                            top_gainers=top_gainers,
+                            top_losers=top_losers
+                        )
+                        
+                        logger.info(f"🤖 AI Market Insight: {ai_insights.get('insight', 'N/A')[:100]}...")
+                        logger.info(f"   Risk Level: {ai_insights.get('risk_level', 'unknown').upper()}")
+                        logger.info(f"   Recommendation: {ai_insights.get('recommendation', 'Monitor')}")
+                        
+                        market_sentiment_score.ai_insights = ai_insights
+                    except Exception as e:
+                        logger.debug(f"AI sentiment analysis failed: {e}")
+                
+                # Check for sentiment shifts
+                sentiment_shift = self.sentiment_monitor.check_sentiment_shift(market_sentiment_score)
+                if sentiment_shift:
+                    logger.warning(sentiment_shift)
+                    # Could send alert about sentiment shift if needed
+                
+                # NEW: Check for Market Trend Alerts (BULLISH/BEARISH entries)
+                logger.info("Checking for market trend alerts...")
+                trend_alerts = self.trend_alert_engine.check_trend_alerts(market_sentiment_score)
+                
+                if trend_alerts:
+                    logger.warning("=" * 60)
+                    logger.warning("🚨 MARKET TREND ALERTS DETECTED")
+                    logger.warning("=" * 60)
+                    
+                    for alert in trend_alerts:
+                        logger.warning(f"{alert.alert_type.value}: {alert.message}")
+                    
+                    self.last_trend_alerts = trend_alerts
+                    # Send trend alerts via alert manager
+                    self.alert_manager.send_trend_alerts(trend_alerts)
+                    
+            except Exception as e:
+                logger.error(f"Market sentiment analysis failed: {e}")
+                self.current_market_sentiment = None
             
             # Step 4: Calculate indicators and run strategies
             logger.info("Running strategy engines...")
@@ -477,6 +564,64 @@ class CryptoScanner:
                 # Re-rank and limit
                 final_signals = self.scorer.rank_signals(final_signals)[:3]
             
+            # NEW: Step 11 - AI Agent Signal Validation
+            # Validate signals using AI agent against market conditions
+            logger.info("=" * 60)
+            logger.info("🤖 AI Agent Validating Signals...")
+            logger.info("=" * 60)
+            
+            validated_signals = []
+            coins_dict = {c.symbol: c for c in coins} if coins else {}
+            
+            for signal in final_signals:
+                try:
+                    coin = coins_dict.get(signal.symbol)
+                    if coin and self.current_market_sentiment:
+                        # Validate signal with AI agent
+                        validation_result = await self.signal_validation_agent.validate_signal(
+                            signal=signal,
+                            coin=coin,
+                            market_sentiment=self.current_market_sentiment
+                        )
+                        
+                        # Apply agent's decision
+                        if validation_result.decision.value == "APPROVE":
+                            # Update signal confidence with agent's adjustment
+                            signal.confidence_score = validation_result.adjusted_confidence
+                            signal.score_breakdown["agent_decision"] = "APPROVE"
+                            signal.score_breakdown["agent_confidence_adj"] = validation_result.confidence_change
+                            signal.score_breakdown["agent_reasoning"] = validation_result.reasoning[:100]
+                            validated_signals.append(signal)
+                            logger.info(
+                                f"✅ Agent APPROVED {signal.symbol}: "
+                                f"Setup Quality {validation_result.setup_quality_score:.0f}/100 | "
+                                f"Market Alignment {validation_result.market_alignment_score:.0f}/100"
+                            )
+                        elif validation_result.decision.value == "HOLD":
+                            # Reduce confidence for HOLD decision
+                            signal.confidence_score = validation_result.adjusted_confidence
+                            signal.score_breakdown["agent_decision"] = "HOLD"
+                            if signal.confidence_score >= self.config.scanner.min_signal_score:
+                                validated_signals.append(signal)
+                                logger.info(f"⏸️ Agent on HOLD for {signal.symbol} (reduced confidence)")
+                        else:  # REJECT
+                            logger.info(
+                                f"❌ Agent REJECTED {signal.symbol}: {validation_result.reasoning[:100]}"
+                            )
+                    else:
+                        # No validation data available, keep signal as-is
+                        validated_signals.append(signal)
+                        
+                except Exception as e:
+                    logger.error(f"Signal validation error for {signal.symbol}: {e}")
+                    # On error, keep signal but mark it
+                    signal.score_breakdown["agent_validation_error"] = str(e)
+                    validated_signals.append(signal)
+            
+            # Use validated signals instead
+            final_signals = validated_signals
+            logger.info(f"Agent validation complete: {len(final_signals)} signals validated and approved")
+            
             # Print signal details
             if final_signals:
                 logger.info("="*50)
@@ -600,9 +745,9 @@ class CryptoScanner:
         return unique
     
     def send_alerts(self, signals: List[TradingSignal]):
-        """Send alerts for signals"""
+        """Send alerts for signals with market sentiment context"""
         if signals:
-            self.alert_manager.send_all_alerts(signals)
+            self.alert_manager.send_all_alerts(signals, self.current_market_sentiment)
     
     def display_results(self, signals: List[TradingSignal]):
         """Display results in dashboard"""
