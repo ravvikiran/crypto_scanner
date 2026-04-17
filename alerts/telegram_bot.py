@@ -45,6 +45,12 @@ class TelegramBot:
         
         try:
             self.bot = telebot.TeleBot(self.alerts.telegram_bot_token)
+            # Clear any existing webhook to avoid conflicts with polling
+            try:
+                self.bot.remove_webhook(drop_pending_updates=True)
+                logger.info("Cleared any existing webhook and pending updates")
+            except Exception as hook_error:
+                logger.warning(f"Could not clear webhook (may not be set): {hook_error}")
             self._register_handlers()
             logger.info("Telegram bot initialized")
         except Exception as e:
@@ -365,6 +371,9 @@ Thank you for using Crypto Scanner!
         
         def run_bot():
             try:
+                import time
+                # Small delay to ensure webhook cleanup is processed
+                time.sleep(2)
                 logger.info("Starting Telegram bot polling...")
                 self.bot.infinity_polling(timeout=60, long_polling_timeout=60)
             except Exception as e:
