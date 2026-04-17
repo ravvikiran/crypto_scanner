@@ -6,7 +6,7 @@ Notifies when market enters BULLISH/BEARISH/VERY_BULLISH/VERY_BEARISH phases.
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Dict
 from enum import Enum
 from loguru import logger
 
