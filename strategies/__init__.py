@@ -506,8 +506,7 @@ class StrategyEngine:
                 signal = engine.scan(coin, btc_trend, timeframe)
                 if signal:
                     signals.append(signal)
-                else:
-                    logger.debug(f"{coin.symbol}: {engine.__class__.__name__} returned no signal for {timeframe}")
+                # Skip logging for no signals - reduces spam in Railway logs
             except Exception as e:
                 logger.error(f"Strategy engine error for {coin.symbol}: {e}")
         

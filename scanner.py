@@ -231,11 +231,6 @@ class CryptoScanner:
                 primary_tf = self.config.scanner.timeframes[0] if self.config.scanner.timeframes else "1h"
                 coin = self.indicator_engine.calculate_all_indicators(coin, primary_tf)
                 
-                # Log trend for debugging
-                rsi_str = f"{coin.rsi:.1f}" if coin.rsi is not None else "None"
-                ema20_str = f"{coin.ema_20:.2f}" if coin.ema_20 is not None else "None"
-                logger.debug(f"{coin.symbol}: trend={coin.trend.value}, rsi={rsi_str}, ema20={ema20_str}")
-                
                 # Run all strategy engines
                 signals = self.strategy_engine.scan_all_strategies(coin, btc_trend, primary_tf)
                 if signals:
