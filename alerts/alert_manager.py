@@ -150,14 +150,19 @@ class AlertManager:
     def _send_telegram(self, message: str):
         """Send message via Telegram bot"""
         try:
-            chat_id = self.alerts.telegram_channel_chat_id or self.alerts.telegram_chat_id
-            
-            if not chat_id:
-                logger.warning("Telegram: No chat_id configured")
+            # Determine which chat ID is being used
+            if self.alerts.telegram_channel_chat_id:
+                chat_id = self.alerts.telegram_channel_chat_id
+                chat_type = "CHANNEL"
+            elif self.alerts.telegram_chat_id:
+                chat_id = self.alerts.telegram_chat_id
+                chat_type = "USER/GROUP"
+            else:
+                logger.warning("Telegram: No chat_id or channel_chat_id configured")
                 return
             
             if chat_id and chat_id.startswith('@'):
-                logger.warning(f"Telegram: Using username '{chat_id}'. For better reliability, get numeric chat ID from @userinfobot bot")
+                logger.warning(f"Telegram: Using username '{chat_id}'. For better reliability, use numeric chat ID")
             
             url = f"https://api.telegram.org/bot{self.alerts.telegram_bot_token}/sendMessage"
             data = {
@@ -166,13 +171,29 @@ class AlertManager:
                 "parse_mode": "HTML"
             }
             
+            logger.debug(f"Sending Telegram message to {chat_type} (ID: {chat_id})")
             response = requests.post(url, json=data, timeout=10)
             
             if response.status_code == 200:
-                logger.info("Telegram alert sent successfully")
+                logger.info(f"✅ Telegram alert sent successfully to {chat_type}")
             else:
-                logger.error(f"Telegram alert failed: {response.text}")
+                error_data = response.json() if response.text else {}
+                error_code = error_data.get("error_code", response.status_code)
+                error_desc = error_data.get("description", response.text)
                 
+                logger.error(f"Telegram error ({error_code}): {error_desc}")
+                
+                # Provide helpful diagnostic info
+                if error_code == 403:
+                    logger.error(f"❌ Bot cannot send to this {chat_type} ID: {chat_id}")
+                    logger.error("   Possible causes:")
+                    logger.error("   1. Bot is not added to the channel/group")
+                    logger.error("   2. Bot doesn't have 'send message' permission")
+                    logger.error(f"   3. {chat_type} ID might be a bot ID (bots can't receive from bots)")
+                    logger.error("   4. Use @userinfobot to verify your user ID")
+                elif error_code == 400:
+                    logger.error(f"❌ Invalid chat ID format: {chat_id}")
+                    
         except Exception as e:
             logger.error(f"Error sending Telegram alert: {e}")
     
