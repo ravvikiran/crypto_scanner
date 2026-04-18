@@ -429,7 +429,9 @@ class CryptoScanner:
             
             # NEW: Step 7c - Apply Self-Adaptation based on historical performance
             if self.config.learning.enable_learning:
-                all_outcomes = self.trade_journal.get_outcomes()
+                # Combine both automated signal outcomes and manual journal trades
+                all_outcomes = self.accuracy_scorer._outcomes.copy()
+                all_outcomes.extend(self.trade_journal.get_outcomes())
                 if len(all_outcomes) >= 5:
                     for signal in qualified_signals:
                         original_conf = signal.confidence_score
@@ -834,7 +836,9 @@ class CryptoScanner:
         resolved = await self.resolution_checker.check_all_signals()
         
         self_adapted = False
-        all_outcomes = self.trade_journal.get_outcomes()
+        # Combine both automated signal outcomes and manual journal trades
+        all_outcomes = self.accuracy_scorer._outcomes.copy()
+        all_outcomes.extend(self.trade_journal.get_outcomes())
         if len(all_outcomes) >= 5:
             self.self_adaptation.generate_adaptations(all_outcomes)
             self_adapted = True
