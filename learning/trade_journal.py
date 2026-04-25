@@ -276,8 +276,87 @@ class TradeJournal:
         return self.journal_exit(trade_id, exit_price, exit_reason, notes)
     
     def get_open_trades(self) -> List[Dict[str, Any]]:
-        """Get all open trades."""
-        return [t for t in self._trades.values() if t['status'] == 'OPEN']
+        """Get all currently open trades."""
+        trades = []
+        for t in self._trades.values():
+            if t['status'] == 'OPEN':
+                # Convert LONG/SHORT to BUY/SELL for API compatibility
+                direction = 'BUY' if t.get('direction', 'LONG').upper() in ['LONG', 'BUY'] else 'SELL'
+                trades.append({
+                    'trade_id': t.get('trade_id'),
+                    'symbol': t.get('symbol'),
+                    'strategy_type': t.get('strategy_type'),
+                    'timeframe': t.get('timeframe'),
+                    'direction': direction,
+                    'entry': t.get('entry_price'),
+                    'stop_loss': t.get('stop_loss'),
+                    'target_1': t.get('target_1'),
+                    'target_2': t.get('target_2'),
+                    'targets': [t.get('target_1'), t.get('target_2')] if t.get('target_1') and t.get('target_2') else [],
+                    'quantity': t.get('quantity', 1),
+                    'status': t.get('status', 'OPEN'),
+                    'outcome': t.get('exit_reason', 'OPEN'),
+                    'exit_price': t.get('exit_price'),
+                    'pnl_percent': t.get('pnl_percent'),
+                    'timestamp': t.get('entry_time'),
+                    'exit_time': t.get('exit_time'),
+                    'notes': t.get('notes', '')
+                })
+        return trades
+    
+    def get_all_trades(self) -> List[Dict[str, Any]]:
+        """Get all trades (open + closed)."""
+        all_trades = []
+        # Add open trades
+        for trade in self._trades.values():
+            direction = 'BUY' if trade.get('direction', 'LONG').upper() in ['LONG', 'BUY'] else 'SELL'
+            all_trades.append({
+                'trade_id': trade.get('trade_id'),
+                'symbol': trade.get('symbol'),
+                'strategy_type': trade.get('strategy_type'),
+                'timeframe': trade.get('timeframe'),
+                'direction': direction,
+                'entry': trade.get('entry_price'),
+                'stop_loss': trade.get('stop_loss'),
+                'target_1': trade.get('target_1'),
+                'target_2': trade.get('target_2'),
+                'targets': [trade.get('target_1'), trade.get('target_2')] if trade.get('target_1') and trade.get('target_2') else [],
+                'quantity': trade.get('quantity', 1),
+                'status': trade.get('status', 'OPEN'),
+                'outcome': trade.get('exit_reason', 'OPEN'),
+                'exit_price': trade.get('exit_price'),
+                'pnl_percent': trade.get('pnl_percent'),
+                'timestamp': trade.get('entry_time'),
+                'exit_time': trade.get('exit_time'),
+                'notes': trade.get('notes', '')
+            })
+        # Add closed outcomes as trades
+        for outcome in self._outcomes:
+            direction = 'BUY' if outcome.get('direction', 'LONG').upper() in ['LONG', 'BUY'] else 'SELL'
+            trade_data = {
+                'trade_id': outcome.get('trade_id'),
+                'symbol': outcome.get('symbol'),
+                'strategy_type': outcome.get('strategy_type'),
+                'timeframe': outcome.get('timeframe'),
+                'direction': direction,
+                'entry': outcome.get('entry_price'),
+                'stop_loss': outcome.get('stop_loss'),
+                'target_1': outcome.get('target_1'),
+                'target_2': outcome.get('target_2'),
+                'targets': [outcome.get('target_1'), outcome.get('target_2')] if outcome.get('target_1') and outcome.get('target_2') else [],
+                'quantity': outcome.get('quantity', 1),
+                'status': 'CLOSED',
+                'outcome': outcome.get('resolution'),
+                'exit_price': outcome.get('price_at_resolution'),
+                'pnl_percent': outcome.get('pnl_percent'),
+                'timestamp': outcome.get('timestamp'),
+                'exit_time': outcome.get('exit_time'),
+                'notes': outcome.get('notes', '')
+            }
+            all_trades.append(trade_data)
+        # Sort by timestamp descending
+        all_trades.sort(key=lambda t: t.get('timestamp', ''), reverse=True)
+        return all_trades
     
     def get_trade_by_id(self, trade_id: str) -> Optional[Dict[str, Any]]:
         """Get a specific trade by ID."""

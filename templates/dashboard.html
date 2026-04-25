@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crypto Scanner AI - Dashboard</title>
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Chart.js for charts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
+    
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark sticky-top">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-chart-line"></i> Crypto Scanner AI
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link active" href="/">Dashboard</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/trades">Trades</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/performance">Performance</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/analysis">Analysis</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/settings">Settings</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-4">
+        <!-- Header with Market Status -->
+        <div class="row mb-4">
+            <div class="col-md-9">
+                <h2 class="mb-0">Dashboard</h2>
+            </div>
+            <div class="col-md-3 text-end">
+                <div class="btn-group" role="group">
+                    <button type="button" class="btn btn-sm btn-success" id="start-btn" onclick="startScanner()">
+                        <i class="fas fa-play"></i> Start
+                    </button>
+                    <button type="button" class="btn btn-sm btn-danger" id="stop-btn" onclick="stopScanner()">
+                        <i class="fas fa-stop"></i> Stop
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Market Status Card -->
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <div class="card market-status-card" id="market-status-card">
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-3">
+                                <h6 class="text-muted">Status</h6>
+                                <h5><span class="badge" id="market-status">Loading...</span></h5>
+                            </div>
+                            <div class="col-md-3">
+                                <h6 class="text-muted">Current Time</h6>
+                                <h5 id="market-time">--:--:--</h5>
+                            </div>
+                            <div class="col-md-3">
+                                <h6 class="text-muted">Market Type</h6>
+                                <h5 id="market-type">24/7 Crypto</h5>
+                            </div>
+                            <div class="col-md-3">
+                                <h6 class="text-muted">Last Scan</h6>
+                                <h5 id="last-scan">Never</h5>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Key Metrics -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="card metric-card">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <h6 class="text-muted mb-0">Open Trades</h6>
+                                <h3 class="mb-0" id="open-trades">0</h3>
+                            </div>
+                            <div class="metric-icon">
+                                <i class="fas fa-shopping-cart"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-3">
+                <div class="card metric-card">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <h6 class="text-muted mb-0">Win Rate</h6>
+                                <h3 class="mb-0" id="win-rate">0%</h3>
+                            </div>
+                            <div class="metric-icon success">
+                                <i class="fas fa-chart-pie"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-3">
+                <div class="card metric-card">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <h6 class="text-muted mb-0">Total Trades</h6>
+                                <h3 class="mb-0" id="total-trades">0</h3>
+                            </div>
+                            <div class="metric-icon">
+                                <i class="fas fa-history"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-3">
+                <div class="card metric-card">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <h6 class="text-muted mb-0">Total P&L</h6>
+                                <h3 class="mb-0" id="total-pnl">$0</h3>
+                            </div>
+                            <div class="metric-icon" id="pnl-icon">
+                                <i class="fas fa-wallet"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Scanner Status & Today's Performance -->
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header bg-primary text-white">
+                        <h6 class="mb-0">Scanner Status</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="row mb-3">
+                            <div class="col-6">
+                                <label class="small text-muted">Status</label>
+                                <h5><span class="badge" id="scanner-running">Stopped</span></h5>
+                            </div>
+                            <div class="col-6">
+                                <label class="small text-muted">Total Scans</label>
+                                <h5 id="total-scans">0</h5>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-6">
+                                <label class="small text-muted">Last Scan</label>
+                                <p id="last-scan">Never</p>
+                            </div>
+                            <div class="col-6">
+                                <label class="small text-muted">Signals Generated</label>
+                                <h5 id="signals-generated">0</h5>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header bg-success text-white">
+                        <h6 class="mb-0">Today's Performance</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="row mb-3">
+                            <div class="col-6">
+                                <label class="small text-muted">Today's Trades</label>
+                                <h5 id="today-trades">0</h5>
+                            </div>
+                            <div class="col-6">
+                                <label class="small text-muted">Today's P&L</label>
+                                <h5 id="today-pnl">$0</h5>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-6">
+                                <label class="small text-muted">This Week Trades</label>
+                                <h5 id="week-trades">0</h5>
+                            </div>
+                            <div class="col-6">
+                                <label class="small text-muted">This Week P&L</label>
+                                <h5 id="week-pnl">$0</h5>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts Section -->
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0">Win/Loss Distribution</h6>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="winLossChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0">P&L Curve (Last 30 Days)</h6>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="pnlChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recent Trades -->
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-header">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h6 class="mb-0">Recent Open Trades</h6>
+                            <a href="/trades" class="btn btn-sm btn-primary">View All</a>
+                        </div>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Symbol</th>
+                                    <th>Strategy</th>
+                                    <th>Entry</th>
+                                    <th>Current</th>
+                                    <th>SL</th>
+                                    <th>Target</th>
+                                    <th>P&L ($)</th>
+                                    <th>P&L %</th>
+                                </tr>
+                            </thead>
+                            <tbody id="recent-trades-table">
+                                <tr>
+                                    <td colspan="8" class="text-center text-muted">Loading...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- jQuery -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+</body>
+</html>

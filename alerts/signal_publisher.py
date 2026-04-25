@@ -17,6 +17,7 @@ from config import get_config
 from learning import TradeJournal
 from collectors import MarketDataCollector
 from alerts.alert_manager import AlertManager
+from alerts.signal_memory import SignalMemory
 
 
 class SignalPublisher:
@@ -104,25 +105,60 @@ class SignalPublisher:
     
     def publish_signal(self, signal: TradingSignal) -> bool:
         """
-        Publish a signal to Telegram and journal it.
-        
-        Args:
-            signal: The signal to publish
-            
-        Returns:
-            True if successfully published, False otherwise
+        Publish a signal to Telegram with update detection.
+        Checks if signal already active → sends UPDATE else NEW.
+        Also journals and tracks.
         """
         if not self.can_publish():
-            logger.info(f"Daily signal limit reached ({self._daily_published_count}), cannot publish {signal.symbol}")
+            logger.info(f"Daily limit reached ({self._daily_published_count}), cannot publish {signal.symbol}")
             return False
-        
+
         try:
             logger.info(f"Publishing signal: {signal.symbol} {signal.direction.value}")
-            
-            self.alert_manager.send_all_alerts([signal])
-            
+
+            # Check for UPDATE vs NEW using signal_memory
+            from alerts.signal_memory import SignalMemory
+            signal_memory = SignalMemory()
+
+            signal_dict = {
+                'symbol': signal.symbol,
+                'signal_type': signal.strategy_type.value,
+                'direction': signal.direction.value,
+                'entry': signal.entry_zone_min,
+                'stop_loss': signal.stop_loss,
+                'targets': [signal.target_1, signal.target_2],
+                'score': signal.ai_confidence_score if signal.ai_confidence_score else (signal.confidence_score * 10),
+                'strategy': signal.strategy_type.value,
+                'current_price': signal.current_price,
+                'rank': getattr(signal, 'rank', 0),
+                'timeframe': signal.timeframe,
+                'reasoning': signal.reasoning
+            }
+
+            is_update, previous = signal_memory.should_send_update(signal_dict)
+
+            # Format message
+            if is_update and previous:
+                msg = self.alert_manager.format_signal_update(signal_dict, previous)
+                msg_type = "UPDATE"
+            else:
+                msg = self.alert_manager.format_new_signal(signal_dict)
+                msg_type = "NEW"
+
+            # Send via Telegram (raw update/new message)
+            self._send_telegram_message(msg)
+
+            # Also send via other configured channels (Discord, Email)
+            # Note: This will send a standard formatted alert based on TradingSignal,
+            # which may not match the update message. If Discord/Email are critical,
+            # consider extending alert_manager to accept custom messages.
+            # For now, skip to avoid duplicate Telegram.
+            # self.alert_manager.send_all_alerts([signal], None)
+
+            # Journal
             self._journal_signal(signal)
-            
+
+            # Store in publisher state
             self._published_signals[signal.id] = {
                 'signal_id': signal.id,
                 'symbol': signal.symbol,
@@ -135,18 +171,42 @@ class SignalPublisher:
                 'timeframe': signal.timeframe,
                 'published_date': datetime.now().strftime('%Y-%m-%d'),
                 'published_time': datetime.now().isoformat(),
-                'status': 'OPEN'
+                'status': 'OPEN',
+                'message_type': msg_type  # Track if update
             }
-            
+
             self._daily_published_count += 1
             self._save_state()
-            
-            logger.info(f"Signal published and journaled: {signal.symbol}")
+
+            logger.info(f"Signal published: {signal.symbol} ({msg_type})")
             return True
-            
+
         except Exception as e:
             logger.error(f"Failed to publish signal: {e}")
             return False
+
+    def _send_telegram_message(self, message: str):
+        """Send raw text message to Telegram."""
+        try:
+            import requests
+            from config import get_config
+            cfg = get_config()
+            token = cfg.alerts.telegram_bot_token
+            chat_id = cfg.alerts.telegram_channel_chat_id or cfg.alerts.telegram_chat_id
+
+            if token and chat_id:
+                url = f"https://api.telegram.org/bot{token}/sendMessage"
+                resp = requests.post(url, json={
+                    "chat_id": chat_id,
+                    "text": message,
+                    "parse_mode": "HTML"
+                }, timeout=10)
+                if resp.status_code != 200:
+                    logger.error(f"Telegram send failed: {resp.status_code} {resp.text}")
+            else:
+                logger.warning("Telegram not configured")
+        except Exception as e:
+            logger.error(f"Telegram send error: {e}")
     
     def _journal_signal(self, signal: TradingSignal):
         """Add published signal to trade journal."""

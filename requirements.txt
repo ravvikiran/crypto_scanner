@@ -10,13 +10,16 @@ numpy>=1.26.2
 python-dotenv>=1.0.0
 pyyaml>=6.0
 requests>=2.31.0
-telebot>=0.0.5
 pyTelegramBotAPI>=4.0.0
 discord-webhook>=1.0.0
 apscheduler>=3.10.4
 schedule>=1.2.0
 loguru>=0.7.2
 tabulate>=0.9.0
+
+# Web Dashboard (Flask)
+flask>=2.3.0
+flask-cors>=4.0.0
 
 # AI/LLM Dependencies
 openai>=1.12.0

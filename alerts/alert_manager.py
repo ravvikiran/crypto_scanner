@@ -8,7 +8,7 @@ import requests
 from datetime import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from typing import List, Optional
+from typing import List, Optional, Dict
 from loguru import logger
 
 from models import TradingSignal, SignalDirection, StrategyType
@@ -504,10 +504,94 @@ BTC Trend: {market_sentiment.btc_trend.value}
                 confidence_score=8.5,
                 reasoning="Test signal - configuration verified"
             )
-            
+
             self.send_all_alerts([test_signal])
             return True
-            
+
         except Exception as e:
             logger.error(f"Test alert failed: {e}")
             return False
+
+    def format_signal_update(self, new_signal: Dict, previous: Dict) -> str:
+        """
+        Create UPDATE message for recurring signal (still in top5).
+        """
+        symbol = new_signal.get('symbol', previous.get('symbol', 'UNK'))
+        entry = previous.get('entry', 0)
+        sl = previous.get('stop_loss', 0)
+        targets = previous.get('targets', [])
+        current = new_signal.get('current_price', previous.get('current_price', entry))
+        hit_count = previous.get('highest_target_hit', 0)
+
+        # Calculate metrics
+        pnl_pct = ((current - entry) / entry * 100) if entry > 0 else 0
+        dist_to_sl = abs((current - sl) / sl * 100) if sl > 0 else 0
+
+        # Build targets string
+        target_lines = []
+        for i, t in enumerate(targets, 1):
+            if i <= hit_count:
+                target_lines.append(f"T{i}: ${t:.2f} ✅ HIT")
+            else:
+                if current > 0 and t > 0:
+                    dist = ((t - current) / current) * 100
+                    target_lines.append(f"T{i}: ${t:.2f} ({dist:+.1f}%)")
+                else:
+                    target_lines.append(f"T{i}: ${t:.2f}")
+
+        emoji_progress = "🟢" if pnl_pct >= 0 else "🔴"
+
+        message = f"""🔄 SIGNAL UPDATE - #{new_signal.get('rank', '?')} - {symbol}
+
+📈 Progress: {emoji_progress} {pnl_pct:+.1f}%
+📍 Current: ${current:.2f}
+🎯 Targets: {' | '.join(target_lines)}
+
+📊 New Ranking:
+   Rank: #{new_signal.get('rank', '?')}/5
+   Score: {new_signal.get('score', 0):.0f}/100
+   Strategy: {new_signal.get('strategy', 'Unknown')}
+
+📅 Original: {previous.get('generated_at', '')[:10]}"""
+
+        return message
+
+    def format_new_signal(self, signal: Dict) -> str:
+        """
+        Format a NEW signal alert message.
+
+        Args:
+            signal: Signal dictionary
+
+        Returns:
+            Formatted alert message
+        """
+        symbol = signal.get('symbol', '')
+        direction = signal.get('direction', 'LONG')
+        strategy = signal.get('strategy', '')
+        entry = signal.get('entry', signal.get('entry_zone_min', 0))
+        sl = signal.get('stop_loss', 0)
+        targets = signal.get('targets', [signal.get('target_1', 0)])
+        rank = signal.get('rank', 0)
+        score = signal.get('score', 0)
+
+        direction_emoji = "🟢" if direction == "LONG" else "🔴"
+
+        target_str = " | ".join([f"T{i+1}: ${t:.2f}" for i, t in enumerate(targets)])
+
+        message = f"""{direction_emoji} NEW SIGNAL - #{rank} - {symbol}
+
+Strategy: {strategy}
+Timeframe: {signal.get('timeframe', '?')}
+
+Entry: ${entry:.4f}
+Stop Loss: ${sl:.4f}
+Targets: {target_str}
+
+Confidence: {score:.0f}/100
+Rank: #{rank}/5
+
+Reasoning:
+{signal.get('reasoning', '')[:300]}..."""
+
+        return message

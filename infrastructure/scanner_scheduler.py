@@ -1,8 +1,8 @@
 """
-Scanner Scheduler
-Runs the accumulation scanner at a specific time on weekdays OR continuously every 15 minutes
+Scanner Scheduler for Crypto Markets (24/7)
+Runs the scanner on a configurable interval continuously.
 
-PRD Multi-Timeframe Scheduler:
+Multi-Timeframe Scheduler:
 - 15m scan → every 5 min
 - 4H scan → every 30 min
 - 1D scan → every 2 hours
@@ -44,12 +44,14 @@ class ScannerScheduler:
         self.config = config
         self.scheduler_config = config.get('scheduler', {})
         
-        self.timezone = self.scheduler_config.get('timezone', 'Asia/Kolkata')
+        # Crypto runs 24/7, use UTC as default timezone
+        self.timezone = self.scheduler_config.get('timezone', 'UTC')
         
-        self.scan_hour = self.scheduler_config.get('scan_time_hour', 15)
+        self.scan_hour = self.scheduler_config.get('scan_time_hour', 0)
         self.scan_minute = self.scheduler_config.get('scan_time_minute', 0)
         
-        self.run_days = self.scheduler_config.get('run_days', [1, 2, 3, 4, 5])
+        # Run every day of the week for crypto
+        self.run_days = self.scheduler_config.get('run_days', [0, 1, 2, 3, 4, 5, 6])
         
         self.run_mode = self.scheduler_config.get('run_mode', 'continuous')
         

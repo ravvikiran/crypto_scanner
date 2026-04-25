@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trades - Crypto Scanner AI</title>
+    
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark sticky-top">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-chart-line"></i> Crypto Scanner AI
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/">Dashboard</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="/trades">Trades</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/performance">Performance</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/analysis">Analysis</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/settings">Settings</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-4">
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <h2 class="mb-4">Trades Management</h2>
+
+                <!-- Tabs -->
+                <ul class="nav nav-tabs" role="tablist">
+                    <li class="nav-item">
+                        <a class="nav-link active" data-bs-toggle="tab" href="#open-trades" role="tab">
+                            Open Trades <span class="badge bg-primary" id="open-count">0</span>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" data-bs-toggle="tab" href="#history" role="tab">
+                            Trade History <span class="badge bg-secondary" id="history-count">0</span>
+                        </a>
+                    </li>
+                </ul>
+
+                <!-- Tab Content -->
+                <div class="tab-content mt-4">
+                    <!-- Open Trades Tab -->
+                    <div id="open-trades" class="tab-pane active" role="tabpanel">
+                        <div class="card">
+                            <div class="card-header">
+                                <h6 class="mb-0">Active Positions</h6>
+                            </div>
+                            <div class="table-responsive">
+                                <table class="table table-hover mb-0">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Symbol</th>
+                                            <th>Strategy</th>
+                                            <th>Entry Price</th>
+                                            <th>Current Price</th>
+                                            <th>Stop Loss</th>
+                                            <th>Target 1/2/3</th>
+                                            <th>Unrealized P&L</th>
+                                            <th>Unrealized %</th>
+                                            <th>Distance to SL</th>
+                                            <th>Days Held</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="open-trades-table">
+                                        <tr>
+                                            <td colspan="10" class="text-center text-muted">Loading...</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- History Tab -->
+                    <div id="history" class="tab-pane" role="tabpanel">
+                        <div class="card mb-3">
+                            <div class="card-body">
+                                <div class="row g-3">
+                                    <div class="col-md-3">
+                                        <label class="form-label">Filter by Strategy</label>
+                                        <select id="strategy-filter" class="form-select form-select-sm">
+                                            <option value="">All Strategies</option>
+                                            <option value="TREND">Trend</option>
+                                            <option value="VERC">VERC</option>
+                                            <option value="MTF">MTF</option>
+                                            <option value="SWING">Swing</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">Filter by Outcome</label>
+                                        <select id="outcome-filter" class="form-select form-select-sm">
+                                            <option value="">All Outcomes</option>
+                                            <option value="WIN">WIN</option>
+                                            <option value="LOSS">LOSS</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">Days</label>
+                                        <select id="days-filter" class="form-select form-select-sm">
+                                            <option value="7">Last 7 Days</option>
+                                            <option value="30" selected>Last 30 Days</option>
+                                            <option value="90">Last 90 Days</option>
+                                            <option value="365">Last Year</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-3 d-flex align-items-end">
+                                        <button class="btn btn-primary btn-sm w-100" onclick="loadTradeHistory()">
+                                            <i class="fas fa-filter"></i> Apply Filter
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-header">
+                                <h6 class="mb-0">Trade History</h6>
+                            </div>
+                            <div class="table-responsive">
+                                <table class="table table-hover mb-0">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Trade ID</th>
+                                            <th>Symbol</th>
+                                            <th>Strategy</th>
+                                            <th>Entry</th>
+                                            <th>Exit</th>
+                                            <th>SL</th>
+                                            <th>Outcome</th>
+                                            <th>P&L ($)</th>
+                                            <th>RR</th>
+                                            <th>Days Held</th>
+                                            <th>Quality</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="history-table">
+                                        <tr>
+                                            <td colspan="11" class="text-center text-muted">Loading...</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="{{ url_for('static', filename='js/trades.js') }}"></script>
+</body>
+</html>

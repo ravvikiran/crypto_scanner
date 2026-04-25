@@ -36,6 +36,12 @@ from engines import (
     RiskManagementEngine
 )
 from strategies.prd_signal_engine import PRDSignalEngine
+# NEW: Enhanced signal processing modules
+from scorer.enhanced import SignalScorerEnhanced
+from alerts.signal_memory import SignalMemory
+from engines.trade_validator import TradeValidator
+from learning.strategy_optimizer import StrategyOptimizer
+from learning.pattern_learning import PatternLearning
 
 
 class CryptoScanner:
@@ -43,7 +49,7 @@ class CryptoScanner:
     
     def __init__(self):
         self.config = get_config()
-        
+
         # Initialize modules
         self.collector: Optional[MarketDataCollector] = None
         self.indicator_engine = IndicatorEngine()
@@ -53,12 +59,12 @@ class CryptoScanner:
         self.alert_manager = AlertManager()
         self.dashboard = Dashboard()
         self.tracker = PerformanceTracker()
-        
+
         # Initialize AI modules
         self.ai_analyzer = AISignalAnalyzer()
         self.ai_generator = AISignalGenerator()
         self.hybrid_reasoner = HybridReasoner()
-        
+
         # Initialize Learning System (Phase 4)
         self.signal_tracker = SignalTracker(self.config)
         self.accuracy_scorer = AccuracyScorer(self.config)
@@ -70,24 +76,15 @@ class CryptoScanner:
         self.learning_engine = LearningEngine(self.config, self.accuracy_scorer)
         self.trade_journal = TradeJournal(self.config)
         self.self_adaptation = SelfAdaptationEngine(self.config)
-        
-        # Initialize NEW Enhanced Engines
-        self.market_regime_engine = MarketRegimeEngine()
-        self.market_sentiment_engine = MarketSentimentEngine()
-        self.ai_sentiment_analyzer = AIMarketSentimentAnalyzer()
-        self.sentiment_monitor = MarketSentimentMonitor()
-        self.trend_alert_engine = MarketTrendAlertEngine()
-        self.signal_validation_agent = AISignalValidationAgent()
-        self.coin_filter_engine = CoinFilterEngine()
-        self.confluence_engine = ConfluenceEngine()
-        self.position_sizer = PositionSizerEngine()
-        self.optimization_engine = OptimizationEngine()
-        
-        # PRD: Risk Management Engine
-        self.risk_engine = RiskManagementEngine()
-        
-        # Initialize PRD Signal Engine
-        self.prd_engine = PRDSignalEngine()
+
+        # Initialize NEW Enhanced Engines for Signal Processing
+        self.enhanced_scorer = SignalScorerEnhanced()
+        self.signal_memory = SignalMemory()
+        self.trade_validator = TradeValidator()
+        self.optimizer = StrategyOptimizer(self.trade_journal)
+        self.pattern_learning = PatternLearning(self.trade_journal)
+
+        # Initialize existing enhanced engines
         
         # Store coins for AI analysis
         self._coins_cache: Dict[str, CoinData] = {}
@@ -228,6 +225,8 @@ class CryptoScanner:
                         # Score and enrich MTF signals
                         signal = self.scorer.enrich_with_btc_alignment(signal, btc_trend)
                         signal = self.scorer.score_signal(signal)
+                        # Capture snapshot from coin (current state)
+                        signal.indicator_snapshot = self._capture_indicators(coin, btc_trend.value, regime_str)
                         mtf_signals.append(signal)
                 
                 logger.info(f"MTF Strategy: {len(mtf_signals)} signals generated")
@@ -327,6 +326,8 @@ class CryptoScanner:
                 for signal in signals:
                     signal = self.scorer.enrich_with_btc_alignment(signal, btc_trend)
                     signal = self.scorer.score_signal(signal)
+                    # Capture indicator snapshot for enhanced scoring
+                    signal.indicator_snapshot = self._capture_indicators(coin, btc_trend.value, regime_str)
                     all_signals.append(signal)
                 
                 # Also check other timeframes
@@ -337,6 +338,8 @@ class CryptoScanner:
                     for signal in signals:
                         signal = self.scorer.enrich_with_btc_alignment(signal, btc_trend)
                         signal = self.scorer.score_signal(signal)
+                        # Capture indicators snapshot (from coin_tf)
+                        signal.indicator_snapshot = self._capture_indicators(coin_tf, btc_trend.value, regime_str)
                         all_signals.append(signal)
             
             # Step 3c: Merge MTF signals with all signals
@@ -367,9 +370,11 @@ class CryptoScanner:
                             # Filter by risk/reward
                             if signal.risk_reward < self.prd_engine.min_risk_reward:
                                 continue
-                            
+                             
                             # Enrich with BTC alignment
                             signal = self.scorer.enrich_with_btc_alignment(signal, btc_trend)
+                            # Capture snapshot for enhanced scoring
+                            signal.indicator_snapshot = self._capture_indicators(coin_tf, btc_trend.value, regime_str)
                             all_signals.append(signal)
                 
                 logger.info(f"PRD signals: {len([s for s in all_signals if s.strategy_type.value in ['Breakout', 'Pullback']])}")
@@ -448,12 +453,57 @@ class CryptoScanner:
             # Re-filter after optimization check
             qualified_signals = [s for s in qualified_signals if s.confidence_score >= self.config.scanner.min_signal_score]
             
-            # Step 8: Rank and deduplicate
+            # Step 8: Enhanced Scoring & Top5 Selection
+            logger.info("🎯 Applying Enhanced Scoring & Top5 Selection...")
+
+            # Prepare coins dict for indicator lookups
+            coins_dict = {c.symbol: c for c in coins}
+
+            # Apply enhanced scoring to each qualified signal
+            for signal in qualified_signals:
+                indicators = getattr(signal, 'indicator_snapshot', None)
+                if indicators:
+                    # Compute enhanced score (0-100) using snapshot
+                    enhanced_score = self.enhanced_scorer.score_signal(signal, indicators)
+                    signal.ai_confidence_score = enhanced_score
+                    signal.confidence_score = enhanced_score / 10
+                    signal.score_breakdown['enhanced_score'] = enhanced_score
+                else:
+                    # Fallback: retain existing confidence score
+                    pass
+
+            # Rank all signals by confidence_score (which now reflects enhanced score)
+            qualified_signals = self.scorer.rank_signals(qualified_signals)
+
+            # Deduplicate
             final_signals = self._deduplicate_signals(qualified_signals)
-            
-            # Step 8: Keep only top 3 signals
-            max_signals = 3
+
+            # Keep only TOP 5
+            max_signals = 5
             final_signals = final_signals[:max_signals]
+            logger.info(f"Top {len(final_signals)} signals selected")
+
+            # Step 9: Validate signals (SL/target checks)
+            logger.info("✅ Validating signal parameters...")
+            validated_signals = []
+            for signal in final_signals:
+                coin = coins_dict.get(signal.symbol)
+                indicators = {
+                    'close': coin.current_price if coin else 0,
+                    'volume': coin.volume_24h if coin else 0,
+                    'volume_ma': coin.volume_ma if coin and hasattr(coin, 'volume_ma') and coin.volume_ma else 1,
+                    'rsi': coin.rsi if coin else 50
+                }
+
+                validation = self.trade_validator.validate(signal, indicators)
+                if not validation['valid']:
+                    logger.warning(f"Signal {signal.symbol} rejected: {validation['errors']}")
+                    continue
+
+                validated_signals.append(signal)
+
+            final_signals = validated_signals
+            logger.info(f"{len(final_signals)} signals passed validation")
             
             # Step 9: AI Analysis and Enhancement (AI-first)
             if self.ai_analyzer.is_available:
@@ -484,8 +534,8 @@ class CryptoScanner:
                     # Re-filter by minimum score
                     final_signals = [s for s in final_signals if s.confidence_score >= self.config.scanner.min_signal_score]
                     
-                    # Keep top 3
-                    final_signals = final_signals[:3]
+                    # Keep top 5
+                    final_signals = final_signals[:5]
                     
                     logger.info(f"AI enhanced {len(final_signals)} signals")
                 else:
@@ -524,8 +574,8 @@ class CryptoScanner:
             # Re-filter by minimum score
             final_signals = [s for s in final_signals if s.confidence_score >= self.config.scanner.min_signal_score]
             
-            # Keep top 3
-            final_signals = final_signals[:3]
+            # Keep top 5
+            final_signals = final_signals[:5]
             
             if self.hybrid_reasoner.is_available:
                 logger.info(f"Hybrid reasoning applied to {len(final_signals)} signals")
@@ -564,7 +614,7 @@ class CryptoScanner:
                                 logger.info(f"AI generated signal for {coin.symbol}: {ai_signal.direction.value}")
                 
                 # Re-rank and limit
-                final_signals = self.scorer.rank_signals(final_signals)[:3]
+                final_signals = self.scorer.rank_signals(final_signals)[:5]
             
             # NEW: Step 11 - AI Agent Signal Validation
             # Validate signals using AI agent against market conditions
@@ -688,10 +738,17 @@ class CryptoScanner:
                     self.signal_tracker.add_signal(signal)
                     logger.debug(f"Added signal {signal.id} to learning tracker")
             
+            # Assign ranks to final signals
+            for i, signal in enumerate(final_signals, 1):
+                signal.rank = i
+
             # Update state
             self.last_scan_time = datetime.now()
             self.last_signals = final_signals
-            
+
+            # Send alerts (with update detection)
+            self.send_alerts(final_signals)
+
             return final_signals
             
         except Exception as e:
@@ -736,20 +793,113 @@ class CryptoScanner:
         """Remove duplicate signals for same coin/strategy"""
         seen = set()
         unique = []
-        
+
         for signal in signals:
             key = (signal.symbol, signal.strategy_type.value, signal.timeframe)
-            
+
             if key not in seen:
                 seen.add(key)
                 unique.append(signal)
-        
+
         return unique
+
+    def _capture_indicators(self, coin: CoinData, btc_trend: str, market_regime: str) -> Dict:
+        """Capture indicator snapshot from coin for enhanced scoring."""
+        return {
+            'close': coin.current_price,
+            'ema20': coin.ema_20,
+            'ema50': coin.ema_50,
+            'ema100': coin.ema_100,
+            'ema200': coin.ema_200,
+            'rsi': coin.rsi,
+            'atr': coin.atr,
+            'volume': coin.volume_24h,
+            'volume_ma': getattr(coin, 'volume_ma', coin.volume_24h),
+            'btc_trend': btc_trend,
+            'market_regime': market_regime
+        }
     
     def send_alerts(self, signals: List[TradingSignal]):
-        """Send alerts for signals with market sentiment context"""
-        if signals:
-            self.alert_manager.send_all_alerts(signals, self.current_market_sentiment)
+        """
+        Send alerts for signals with update detection.
+        Checks if signal already exists in memory → send UPDATE instead of NEW.
+        Also records signals to trade journal and memory.
+        """
+        if not signals:
+            return
+
+        for signal in signals:
+            # Convert to dict for memory check
+            signal_dict = {
+                'symbol': signal.symbol,
+                'signal_type': signal.strategy_type.value,
+                'direction': signal.direction.value,
+                'entry': signal.entry_zone_min,
+                'stop_loss': signal.stop_loss,
+                'targets': [signal.target_1, signal.target_2],
+                'score': signal.ai_confidence_score or (signal.confidence_score * 10),
+                'strategy': signal.strategy_type.value,
+                'current_price': signal.current_price
+            }
+
+            # Check if this signal was already sent (update vs new)
+            is_update, previous = self.signal_memory.should_send_update(signal_dict)
+
+            if is_update and previous:
+                # It's an UPDATE - send update message
+                msg = self.alert_manager.format_signal_update(signal_dict, previous)
+                msg_type = "UPDATE"
+            else:
+                # It's a NEW signal
+                msg = self.alert_manager.format_new_signal(signal_dict)
+                msg_type = "NEW"
+
+            # Send alert via configured channels
+            # Note: alert_manager.send_all_alerts expects TradingSignal objects,
+            # but we have a custom message string. Use Telegram directly.
+            # For now, send via Telegram only (could extend)
+            try:
+                self._send_telegram_alert(msg)
+                logger.info(f"Sent {msg_type} alert for {signal.symbol}")
+            except Exception as e:
+                logger.error(f"Failed to send {msg_type} for {signal.symbol}: {e}")
+
+            # Record to trade journal (as new signal entry for tracking)
+            try:
+                self.trade_journal.add_signal(signal_dict)
+            except Exception as e:
+                logger.warning(f"Failed to journal signal {signal.symbol}: {e}")
+
+            # Store in signal memory
+            try:
+                self.signal_memory.add_signal(signal_dict)
+            except Exception as e:
+                logger.warning(f"Failed to store signal in memory: {e}")
+
+    def _send_telegram_alert(self, message: str):
+        """Send raw text message to Telegram via direct API call."""
+        try:
+            from config import get_config
+            cfg = get_config()
+            token = cfg.alerts.telegram_bot_token
+            chat_id = cfg.alerts.telegram_channel_chat_id or cfg.alerts.telegram_chat_id
+
+            if token and chat_id:
+                import requests
+                url = f"https://api.telegram.org/bot{token}/sendMessage"
+                resp = requests.post(url, json={
+                    "chat_id": chat_id,
+                    "text": message,
+                    "parse_mode": "HTML"
+                }, timeout=10)
+                if resp.status_code == 200:
+                    logger.info("Telegram alert sent")
+                else:
+                    logger.error(f"Telegram send failed: {resp.status_code} {resp.text}")
+            else:
+                logger.warning("Telegram not configured - cannot send alert")
+        except Exception as e:
+            logger.error(f"Telegram send error: {e}")
     
     def display_results(self, signals: List[TradingSignal]):
         """Display results in dashboard"""
@@ -850,6 +1000,21 @@ class CryptoScanner:
             insights_generated = self.learning_engine.generate_insights()
             if insights_generated:
                 logger.info(f"Generated {len(insights_generated)} new insights")
+
+        # Run strategy optimizer and pattern learning if enough closed trades
+        if self.trade_journal:
+            closed_count = len(self.trade_journal.get_outcomes())
+            if closed_count >= 20:
+                # Optimize strategy weights
+                new_weights = self.optimizer.optimize_weights()
+                logger.info(f"Strategy weights updated: {new_weights}")
+
+                # Run pattern analysis
+                analysis = self.pattern_learning.analyze_patterns(limit=100)
+                if analysis.get('insights'):
+                    logger.info(f"Pattern analysis: {len(analysis['insights'])} insights")
+        else:
+            logger.debug("Trade journal not available for learning")
         
         # Get current accuracy stats
         accuracy_stats = self.learning_engine.get_accuracy_stats()

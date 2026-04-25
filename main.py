@@ -75,7 +75,7 @@ def run_scheduled(config: dict, logger):
     
     logger.info(f"Signal Publisher initialized: {signal_publisher.get_status()}")
     
-    from src.scheduler import ScannerScheduler
+    from infrastructure.scanner_scheduler import ScannerScheduler
     scheduler = ScannerScheduler(config)
     scheduler.set_signal_publisher(signal_publisher)
     
@@ -90,6 +90,41 @@ def run_scheduled(config: dict, logger):
         logger.info("✅ Telegram bot polling started - ready to receive commands")
     else:
         logger.warning("⚠️ Telegram bot not initialized - check TELEGRAM_BOT_TOKEN configuration")
+    
+    # Initialize Flask API
+    try:
+        from infrastructure.api import init_api
+        from collectors.crypto_data_fetcher import CryptoDataFetcher
+        from infrastructure.market_scheduler import MarketScheduler as CryptoScheduler
+        
+        logger.info("Initializing Flask API...")
+        # Create instances for API
+        data_fetcher = CryptoDataFetcher()
+        market_scheduler = CryptoScheduler()
+        performance_tracker = PerformanceTracker()
+        
+        # Initialize API with all required components
+        init_api(
+            trade_journal_inst=None,  # Will be set when scanner creates it
+            data_fetcher_inst=data_fetcher,
+            market_scheduler_inst=market_scheduler,
+            performance_tracker_inst=performance_tracker,
+            history_manager_inst=None
+        )
+        logger.info("✅ Flask API initialized")
+        
+        # Start Flask API in background thread
+        import threading
+        def run_api():
+            from infrastructure.api import app as flask_app
+            port = int(os.environ.get('PORT', 5000))
+            flask_app.run(debug=False, host='0.0.0.0', port=port, threaded=True, use_reloader=False)
+        
+        api_thread = threading.Thread(target=run_api, daemon=True)
+        api_thread.start()
+        logger.info(f"🚀 Web UI available at http://localhost:{os.environ.get('PORT', 5000)}")
+    except Exception as e:
+        logger.error(f"Failed to start Flask API: {e}")
     
     def scan_job():
         """Run scan in a thread-safe manner using a new event loop"""

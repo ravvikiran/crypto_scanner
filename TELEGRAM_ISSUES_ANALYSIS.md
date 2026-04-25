@@ -73,7 +73,7 @@ def run_scheduled(config: dict, logger):
     signal_publisher = get_signal_publisher()
     logger.info(f"Signal Publisher initialized: {signal_publisher.get_status()}")
     
-    from src.scheduler import ScannerScheduler
+     from infrastructure.scanner_scheduler import ScannerScheduler
     scheduler = ScannerScheduler(config)
     scheduler.set_signal_publisher(signal_publisher)
     

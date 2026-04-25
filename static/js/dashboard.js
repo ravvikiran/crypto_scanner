@@ -1,0 +1,254 @@
+// Crypto Scanner - Dashboard JavaScript
+
+let winLossChart = null;
+let pnlChart = null;
+let dashboardRefreshInterval = null;
+
+// Initialize dashboard
+document.addEventListener('DOMContentLoaded', function() {
+    updateCurrentTime();
+    loadDashboardData();
+    initCharts();
+    
+    // Refresh dashboard every 30 seconds
+    dashboardRefreshInterval = setInterval(loadDashboardData, 30000);
+    
+    // Update time every second
+    setInterval(updateCurrentTime, 1000);
+});
+
+// Update current time (use UTC for crypto)
+function updateCurrentTime() {
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString('en-US', { timeZone: 'UTC' });
+    document.getElementById('market-time').textContent = timeStr + ' UTC';
+}
+
+// Load all dashboard data
+function loadDashboardData() {
+    Promise.all([
+        fetch('/api/dashboard').then(r => r.json()),
+        fetch('/api/trades/open').then(r => r.json()),
+        fetch('/api/performance/summary').then(r => r.json())
+    ]).then(([dashboard, openTrades, performance]) => {
+        updateDashboardMetrics(dashboard, performance);
+        updateRecentTrades(openTrades.trades);
+    }).catch(error => console.error('Error loading dashboard:', error));
+}
+
+// Update dashboard metrics
+function updateDashboardMetrics(dashboard, performance) {
+    // Market and scanner info
+    document.getElementById('market-status').textContent = dashboard.market_status;
+    
+    // Key metrics
+    document.getElementById('open-trades').textContent = dashboard.open_trades;
+    document.getElementById('win-rate').textContent = dashboard.win_rate + '%';
+    document.getElementById('total-trades').textContent = dashboard.total_trades;
+    
+    // P&L with color coding (use $ for crypto)
+    const pnlElement = document.getElementById('total-pnl');
+    const totalPnl = dashboard.total_pnl || 0;
+    pnlElement.textContent = '$' + formatCurrency(totalPnl);
+    pnlElement.style.color = totalPnl >= 0 ? '#198754' : '#dc3545';
+    
+    // P&L icon color
+    const pnlIcon = document.getElementById('pnl-icon');
+    pnlIcon.style.color = totalPnl >= 0 ? '#198754' : '#dc3545';
+    
+    // Scanner status
+    document.getElementById('scanner-running').innerHTML = 
+        scanner_state.running ? 
+        '<span class="badge bg-success status-active">Running</span>' : 
+        '<span class="badge bg-secondary">Stopped</span>';
+    
+    document.getElementById('total-scans').textContent = scanner_state.total_scans;
+    document.getElementById('signals-generated').textContent = scanner_state.signals_generated;
+    
+    if (scanner_state.last_scan) {
+        document.getElementById('last-scan').textContent = new Date(scanner_state.last_scan).toLocaleTimeString();
+    }
+    
+    // Today's performance
+    if (dashboard.performance_metrics) {
+        document.getElementById('today-trades').textContent = dashboard.performance_metrics.today_trades;
+        document.getElementById('today-pnl').textContent = '$' + formatCurrency(dashboard.performance_metrics.today_pnl);
+        document.getElementById('week-trades').textContent = dashboard.performance_metrics.this_week_trades;
+        document.getElementById('week-pnl').textContent = '$' + formatCurrency(dashboard.performance_metrics.this_week_pnl);
+    }
+    
+    // Update charts
+    updateWinLossChart(dashboard);
+}
+
+// Update recent trades table (use $ for crypto)
+function updateRecentTrades(trades) {
+    const tbody = document.getElementById('recent-trades-table');
+    
+    if (!trades || trades.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted">No open trades</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = trades.slice(0, 5).map(trade => `
+        <tr>
+            <td><strong>${trade.symbol}</strong></td>
+            <td><span class="badge bg-primary">${trade.strategy}</span></td>
+            <td>$${formatCurrency(trade.entry)}</td>
+            <td>$${formatCurrency(trade.current_price || 0)}</td>
+            <td>$${formatCurrency(trade.stop_loss)}</td>
+            <td>${trade.targets.map(t => '$' + formatCurrency(t)).join(' / ')}</td>
+            <td class="${trade.unrealized_pnl >= 0 ? 'text-success' : 'text-danger'}">
+                $${formatCurrency(trade.unrealized_pnl || 0)}
+            </td>
+            <td class="${trade.unrealized_pnl_pct >= 0 ? 'text-success' : 'text-danger'}">
+                ${(trade.unrealized_pnl_pct || 0).toFixed(2)}%
+            </td>
+        </tr>
+    `).join('');
+}
+
+// Initialize charts
+function initCharts() {
+    // Win/Loss pie chart
+    const winLossCtx = document.getElementById('winLossChart').getContext('2d');
+    winLossChart = new Chart(winLossCtx, {
+        type: 'doughnut',
+        data: {
+            labels: ['Wins', 'Losses'],
+            datasets: [{
+                data: [0, 0],
+                backgroundColor: ['#198754', '#dc3545'],
+                borderColor: ['#fff', '#fff'],
+                borderWidth: 2
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: {
+                    position: 'bottom'
+                }
+            }
+        }
+    });
+    
+    // P&L curve chart
+    const pnlCtx = document.getElementById('pnlChart').getContext('2d');
+    pnlChart = new Chart(pnlCtx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [{
+                label: 'Cumulative P&L',
+                data: [],
+                borderColor: '#0d6efd',
+                backgroundColor: 'rgba(13, 110, 253, 0.1)',
+                borderWidth: 2,
+                fill: true,
+                tension: 0.3,
+                pointRadius: 2,
+                pointBackgroundColor: '#0d6efd'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'top'
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        callback: function(value) {
+                            return '$' + formatCurrency(value);
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+// Update win/loss chart
+function updateWinLossChart(dashboard) {
+    if (winLossChart) {
+        winLossChart.data.datasets[0].data = [dashboard.win_count, dashboard.loss_count];
+        winLossChart.update();
+    }
+    
+    // Update P&L curve
+    fetch('/api/performance/pnl-curve')
+        .then(r => r.json())
+        .then(data => {
+            if (pnlChart && data.length > 0) {
+                pnlChart.data.labels = data.map(d => new Date(d.timestamp).toLocaleDateString());
+                pnlChart.data.datasets[0].data = data.map(d => d.cumulative_pnl);
+                pnlChart.update();
+            }
+        });
+}
+
+// Update market status badge color
+function updateMarketStatusBadge(status) {
+    const card = document.getElementById('market-status-card');
+    if (status === 'OPEN') {
+        card.style.background = 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)';
+    } else {
+        card.style.background = 'linear-gradient(135deg, #1f1c2c 0%, #928dab 100%)';
+    }
+}
+
+// Scanner control functions
+function startScanner() {
+    fetch('/api/scanner/start', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                alert('Scanner started successfully');
+                loadDashboardData();
+            }
+        })
+        .catch(err => alert('Error starting scanner: ' + err));
+}
+
+function stopScanner() {
+    if (confirm('Are you sure you want to stop the scanner?')) {
+        fetch('/api/scanner/stop', { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    alert('Scanner stopped');
+                    loadDashboardData();
+                }
+            })
+            .catch(err => alert('Error stopping scanner: ' + err));
+    }
+}
+
+// Utility functions
+function formatCurrency(value) {
+    if (!value) return '0.00';
+    return Math.abs(value).toFixed(2);
+}
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', function() {
+    if (dashboardRefreshInterval) {
+        clearInterval(dashboardRefreshInterval);
+    }
+});
+
+// Global scanner state (update with actual data)
+const scanner_state = {
+    'running': false,
+    'last_scan': null,
+    'next_scan': null,
+    'total_scans': 0,
+    'signals_generated': 0
+};

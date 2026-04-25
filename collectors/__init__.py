@@ -17,6 +17,8 @@ from dataclasses import dataclass, field
 from models import CoinData, OHLCV, Timeframe, TrendDirection
 from config import get_config
 
+from .crypto_data_fetcher import CryptoDataFetcher
+
 
 @dataclass
 class CandleCache:
@@ -335,6 +337,25 @@ class MarketDataCollector:
             logger.error(f"Error fetching BTC data: {e}")
         
         return None
+     
+    async def get_current_price(self, symbol: str) -> float:
+        """
+        Get current price for a symbol using CoinGecko.
+        Returns 0.0 if failed.
+        """
+        try:
+            url = "https://api.coingecko.com/api/v3/simple/price"
+            params = {
+                "ids": symbol.lower(),
+                "vs_currencies": "usd"
+            }
+            async with self.session.get(url, params=params) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    return float(data.get(symbol.lower(), {}).get("usd", 0))
+        except Exception as e:
+            logger.error(f"Error fetching current price for {symbol}: {e}")
+        return 0.0
 
 
 class BinanceCollector:
