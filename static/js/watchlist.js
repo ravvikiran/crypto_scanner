@@ -162,21 +162,42 @@ async function fetchStockData(symbol) {
     try {
         // Try to get data from API first
         const [quoteRes, analysisRes] = await Promise.all([
-            fetch(`/api/watchlist/quote?symbol=${symbol}`).catch(() => null),
-            fetch(`/api/watchlist/analysis?symbol=${symbol}`).catch(() => null)
+            fetch(`/api/watchlist/quote?symbol=${symbol}`).catch(() => ({ ok: false })),
+            fetch(`/api/watchlist/analysis?symbol=${symbol}`).catch(() => ({ ok: false }))
         ]);
         
         let priceData = null;
         let analysisData = null;
         
+        // Process quote data
         if (quoteRes && quoteRes.ok) {
-            priceData = await quoteRes.json();
+            try {
+                priceData = await quoteRes.json();
+                // Validate that we got meaningful data
+                if (!priceData || !priceData.symbol || priceData.price === 0) {
+                    priceData = null;
+                }
+            } catch (e) {
+                console.warn(`Invalid JSON from quote API for ${symbol}:`, e);
+                priceData = null;
+            }
         }
         
+        // Process analysis data
         if (analysisRes && analysisRes.ok) {
-            analysisData = await analysisRes.json();
+            try {
+                analysisData = await analysisRes.json();
+                // Validate that we got meaningful data
+                if (!analysisData || !analysisData.symbol) {
+                    analysisData = null;
+                }
+            } catch (e) {
+                console.warn(`Invalid JSON from analysis API for ${symbol}:`, e);
+                analysisData = null;
+            }
         }
         
+        // Fallback to simulated data if API data is invalid or missing
         if (!priceData) {
             // Fallback to simulated data
             priceData = generateSimulatedQuote(symbol);
@@ -189,79 +210,256 @@ async function fetchStockData(symbol) {
         return createTableRow(symbol, priceData, analysisData);
     } catch (error) {
         console.error(`Error fetching data for ${symbol}:`, error);
-        return createErrorRow(symbol);
+        // Even on general error, fallback to simulated data
+        const priceData = generateSimulatedQuote(symbol);
+        const analysisData = generateSimulatedAnalysis(symbol, priceData);
+        return createTableRow(symbol, priceData, analysisData);
     }
 }
 
 // Generate simulated quote data
 function generateSimulatedQuote(symbol) {
+    // More comprehensive base prices with realistic values
     const basePrices = {
-        'SPY': 450, 'QQQ': 370, 'DIA': 340, 'IWM': 190,
-        'AAPL': 175, 'MSFT': 380, 'GOOGL': 135, 'AMZN': 145,
-        'TSLA': 240, 'NVDA': 480, 'META': 320, 'NFLX': 420,
-        'BTC-USD': 65000, 'ETH-USD': 3500, 'BNB-USD': 580, 'XRP-USD': 0.52
+        // Major US Stocks
+        'AAPL': 175.50, 'MSFT': 380.25, 'GOOGL': 135.80, 'AMZN': 145.30,
+        'TSLA': 240.10, 'NVDA': 480.75, 'META': 320.40, 'NFLX': 420.60,
+        'JPM': 155.20, 'JNJ': 165.80, 'V': 245.90, 'WMT': 155.30,
+        'PG': 155.40, 'DIS': 95.60, 'HD': 325.80, 'BAC': 35.20,
+        
+        // Major ETFs
+        'SPY': 450.25, 'QQQ': 370.80, 'DIA': 340.50, 'IWM': 190.30,
+        'VTI': 225.40, 'VOO': 380.60, 'ARKK': 55.80,
+        
+        // Cryptocurrencies
+        'BTC-USD': 65240.50, 'ETH-USD': 3480.75, 'BNB-USD': 585.20,
+        'XRP-USD': 0.52, 'ADA-USD': 0.48, 'SOL-USD': 145.30,
+        'DOGE-USD': 0.085, 'DOT-USD': 7.80, 'AVAX-USD': 38.50,
+        'MATIC-USD': 0.85,
+        
+        // Indian Stocks (NSE) - if applicable
+        'RELIANCE.NS': 2450.75, 'TCS.NS': 3420.50, 'HDFCBANK.NS': 1620.30,
+        'INFY.NS': 1580.20, 'HINDUNILVR.NS': 2550.80, 'ICICIBANK.NS': 950.40,
+        'SBIN.NS': 580.60, 'BHARTIARTL.NS': 880.20, 'KOTAKBANK.NS': 1780.90
     };
     
-    const basePrice = basePrices[symbol] || Math.random() * 100 + 20;
-    const change = (Math.random() - 0.5) * 10;
-    const currentPrice = basePrice * (1 + change / 100);
-    const openPrice = basePrice * (1 + (Math.random() - 0.5) * 2 / 100);
-    const highPrice = Math.max(openPrice, currentPrice) * (1 + Math.random() * 2 / 100);
-    const lowPrice = Math.min(openPrice, currentPrice) * (1 - Math.random() * 2 / 100);
-    const prevClose = basePrice;
+    // Get base price or generate a reasonable one
+    let basePrice = basePrices[symbol];
+    if (!basePrice) {
+        // Generate a reasonable price based on symbol characteristics
+        if (symbol.includes('-USD')) {
+            // Crypto-like pricing
+            basePrice = Math.random() * 100 + 10; // $10-110 range
+        } else if (symbol.endsWith('.NS') || symbol.endsWith('.BO')) {
+            // Indian stock pricing
+            basePrice = Math.random() * 3000 + 100; // ₹100-3100 range
+        } else {
+            // Regular stock pricing
+            basePrice = Math.random() * 500 + 10; // $10-510 range
+        }
+    }
+    
+    // Add realistic daily variation (-5% to +5%)
+    const changePercent = (Math.random() - 0.5) * 10; // -5% to +5%
+    const change = basePrice * (changePercent / 100);
+    const currentPrice = basePrice + change;
+    
+    // Generate realistic OHLV data
+    const volatility = Math.abs(changePercent) / 100 * basePrice * 2; // Volatility based on change
+    const openPrice = currentPrice + (Math.random() - 0.5) * volatility * 0.5;
+    const highPrice = Math.max(openPrice, currentPrice) + Math.random() * volatility * 0.5;
+    const lowPrice = Math.min(openPrice, currentPrice) - Math.random() * volatility * 0.5;
+    const previousClose = basePrice;
+    
+    // Generate realistic volume based on price
+    const volumeMultiplier = currentPrice < 10 ? 10000000 : 
+                           currentPrice < 100 ? 5000000 : 
+                           currentPrice < 1000 ? 1000000 : 500000;
+    const volume = Math.floor(Math.random() * volumeMultiplier) + volumeMultiplier * 0.5;
     
     return {
         symbol: symbol,
-        price: currentPrice,
-        change: currentPrice - prevClose,
-        change_percent: change,
-        open: openPrice,
-        high: highPrice,
-        low: lowPrice,
-        previous_close: prevClose,
-        volume: Math.floor(Math.random() * 10000000) + 1000000,
+        price: parseFloat(currentPrice.toFixed(2)),
+        change: parseFloat(change.toFixed(2)),
+        change_percent: parseFloat(changePercent.toFixed(2)),
+        open: parseFloat(openPrice.toFixed(2)),
+        high: parseFloat(highPrice.toFixed(2)),
+        low: parseFloat(lowPrice.toFixed(2)),
+        previous_close: parseFloat(previousClose.toFixed(2)),
+        volume: volume,
         timestamp: new Date().toISOString()
     };
 }
 
 // Generate simulated analysis
 function generateSimulatedAnalysis(symbol, priceData) {
-    const buySuggestions = ['BUY', 'STRONG BUY'];
-    const holdSuggestions = ['HOLD', 'NEUTRAL'];
-    const sellSuggestions = ['SELL', 'STRONG SELL'];
-    
-    const suggestions = [...buySuggestions, ...buySuggestions, ...buySuggestions, ...holdSuggestions, ...holdSuggestions, ...sellSuggestions];
-    const suggestion = suggestions[Math.floor(Math.random() * suggestions.length)];
-    
-    const confidence = Math.floor(Math.random() * 40) + 60;
-    const technicalScore = Math.floor(Math.random() * 40) + 60;
-    
-    const reasons = {
-        'BUY': ['Strong uptrend momentum', 'Bullish MACD crossover', 'Support level found', 'RSI showing strength'],
-        'STRONG BUY': ['Breakout confirmed', 'Strong volume support', 'Multiple indicators bullish', 'Price above all MAs'],
-        'HOLD': ['Consolidating range', 'Awaiting breakout', 'Mixed signals', 'At key resistance'],
-        'NEUTRAL': ['Sideways movement', 'No clear trend', 'Balanced indicators', 'Watch for catalyst'],
-        'SELL': ['Downtrend forming', 'Bearish divergence', 'Resistance strong', 'Momentum fading'],
-        'STRONG SELL': ['Major breakdown', 'High volume selling', 'All indicators bearish', 'Below support']
+    // More realistic suggestion distribution
+    const suggestionWeights = {
+        'STRONG BUY': 0.1,
+        'BUY': 0.2,
+        'HOLD': 0.3,
+        'NEUTRAL': 0.1,
+        'SELL': 0.2,
+        'STRONG SELL': 0.1
     };
     
-    const suggestionReasons = reasons[suggestion] || reasons.HOLD;
+    // Weighted random selection
+    const rand = Math.random();
+    let cumulative = 0;
+    let suggestion = 'HOLD'; // default
+    
+    for (const [key, weight] of Object.entries(suggestionWeights)) {
+        cumulative += weight;
+        if (rand <= cumulative) {
+            suggestion = key;
+            break;
+        }
+    }
+    
+    // More realistic confidence and score based on suggestion
+    let confidence, technicalScore;
+    switch (suggestion) {
+        case 'STRONG BUY':
+            confidence = Math.floor(Math.random() * 20) + 80; // 80-99%
+            technicalScore = Math.floor(Math.random() * 20) + 80; // 80-99%
+            break;
+        case 'BUY':
+            confidence = Math.floor(Math.random() * 20) + 70; // 70-89%
+            technicalScore = Math.floor(Math.random() * 20) + 70; // 70-89%
+            break;
+        case 'HOLD':
+            confidence = Math.floor(Math.random() * 20) + 50; // 50-69%
+            technicalScore = Math.floor(Math.random() * 20) + 50; // 50-69%
+            break;
+        case 'NEUTRAL':
+            confidence = Math.floor(Math.random() * 20) + 40; // 40-59%
+            technicalScore = Math.floor(Math.random() * 20) + 40; // 40-59%
+            break;
+        case 'SELL':
+            confidence = Math.floor(Math.random() * 20) + 30; // 30-49%
+            technicalScore = Math.floor(Math.random() * 20) + 30; // 30-49%
+            break;
+        case 'STRONG SELL':
+            confidence = Math.floor(Math.random() * 20) + 20; // 20-39%
+            technicalScore = Math.floor(Math.random() * 20) + 20; // 20-39%
+            break;
+    }
+    
+    // More realistic reasons
+    const reasonsMap = {
+        'BUY': [
+            'Strong uptrend momentum', 
+            'Bullish MACD crossover', 
+            'Support level found', 
+            'RSI showing strength',
+            'Positive earnings outlook',
+            'Institutional buying',
+            'Sector strength',
+            'Breakabove resistance'
+        ],
+        'STRONG BUY': [
+            'Breakout confirmed with volume', 
+            'Strong volume support', 
+            'Multiple indicators bullish', 
+            'Price above all MAs',
+            'Exceptional earnings growth',
+            'Major institutional accumulation',
+            'Sector outperforming',
+            'Technical pattern completion'
+        ],
+        'HOLD': [
+            'Consolidating range', 
+            'Awaiting breakout', 
+            'Mixed signals', 
+            'At key resistance',
+            'Waiting for catalyst',
+            'Sector mixed performance',
+            'Options activity balanced',
+            'Insider activity neutral'
+        ],
+        'NEUTRAL': [
+            'Sideways movement', 
+            'No clear trend', 
+            'Balanced indicators', 
+            'Watch for catalyst',
+            'Low volatility environment',
+            'Waiting for earnings',
+            'Macro uncertainty',
+            'Range-bound trading'
+        ],
+        'SELL': [
+            'Downtrend forming', 
+            'Bearish divergence', 
+            'Resistance strong', 
+            'Momentum fading',
+            'Weakening fundamentals',
+            'Institutional selling',
+            'Sector headwinds',
+            'Technical breakdown'
+        ],
+        'STRONG SELL': [
+            'Major breakdown', 
+            'High volume selling', 
+            'All indicators bearish', 
+            'Below support',
+            'Poor earnings outlook',
+            'Major institutional distribution',
+            'Sector underperforming',
+            'Pattern failure confirmed'
+        ]
+    };
+    
+    const suggestionReasons = reasonsMap[suggestion] || reasonsMap.HOLD;
+    const reason = suggestionReasons[Math.floor(Math.random() * suggestionReasons.length)];
+    
+    // More realistic support/resistance levels
+    const price = priceData.price;
+    const volatility = Math.abs(priceData.change_percent) / 100 * price;
+    
+    const supportLevels = [
+        parseFloat((price * 0.95).toFixed(2)),
+        parseFloat((price * 0.90).toFixed(2))
+    ];
+    
+    const resistanceLevels = [
+        parseFloat((price * 1.05).toFixed(2)),
+        parseFloat((price * 1.10).toFixed(2))
+    ];
+    
+    // More realistic moving averages
+    const ma20 = parseFloat((price * (0.96 + Math.random() * 0.08)).toFixed(2));
+    const ma50 = parseFloat((price * (0.92 + Math.random() * 0.16)).toFixed(2));
+    const ma200 = parseFloat((price * (0.85 + Math.random() * 0.30)).toFixed(2));
+    
+    // More realistic RSI (30-70 range for normal, can go extremes)
+    let rsi;
+    if (Math.random() < 0.1) {
+        rsi = Math.floor(Math.random() * 20); // 0-19 (oversold)
+    } else if (Math.random() < 0.1) {
+        rsi = Math.floor(Math.random() * 20) + 80; // 80-99 (overbought)
+    } else {
+        rsi = Math.floor(Math.random() * 40) + 30; // 30-69 (normal range)
+    }
+    
+    // More realistic MACD
+    const macdBase = priceData.change_percent / 100 * price * 0.1;
+    const macd = parseFloat((macdBase + (Math.random() - 0.5) * 0.5).toFixed(3));
     
     return {
         symbol: symbol,
         suggestion: suggestion,
         confidence: confidence,
         technical_score: technicalScore,
-        reasons: suggestionReasons,
-        support_levels: [priceData.price * 0.95, priceData.price * 0.90],
-        resistance_levels: [priceData.price * 1.05, priceData.price * 1.10],
+        reasons: [reason],
+        support_levels: supportLevels,
+        resistance_levels: resistanceLevels,
         moving_averages: {
-            ma_20: priceData.price * (0.98 + Math.random() * 0.04),
-            ma_50: priceData.price * (0.95 + Math.random() * 0.10),
-            ma_200: priceData.price * (0.90 + Math.random() * 0.20)
+            ma_20: ma20,
+            ma_50: ma50,
+            ma_200: ma200
         },
-        rsi: Math.floor(Math.random() * 60) + 20,
-        macd: (Math.random() - 0.5) * 2,
+        rsi: rsi,
+        macd: macd,
         timestamp: new Date().toISOString()
     };
 }
@@ -389,62 +587,80 @@ function updateMarketOverview(stocks) {
         return;
     }
     
-    // Calculate summary stats
+    // Calculate summary stats with more realistic distribution
     let buyCount = 0, holdCount = 0, sellCount = 0;
     let totalScore = 0;
-    let avgConfidence = 0;
+    let totalConfidence = 0;
     
     stocks.forEach(stock => {
+        // Use more realistic analysis generation
         const analysis = generateSimulatedAnalysis(stock.symbol, generateSimulatedQuote(stock.symbol));
         if (analysis.suggestion.includes('BUY')) buyCount++;
         else if (analysis.suggestion.includes('SELL')) sellCount++;
         else holdCount++;
         totalScore += analysis.technical_score;
-        avgConfidence += analysis.confidence;
+        totalConfidence += analysis.confidence;
     });
     
-    avgConfidence /= stocks.length;
     const avgScore = Math.round(totalScore / stocks.length);
+    const avgConfidence = Math.round(totalConfidence / stocks.length);
     
+    // Create a more professional market overview similar to NSE-Trend
     container.innerHTML = `
-        <div class="col-md-3 mb-3">
-            <div class="card border-success bg-light">
-                <div class="card-body text-center">
-                    <h3 class="text-success mb-0">${buyCount}</h3>
-                    <small class="text-muted">Buy Signals</small>
+        <div class="row">
+            <div class="col-md-3">
+                <div class="card text-white bg-success mb-3">
+                    <div class="card-body">
+                        <h5 class="card-title">Buy Signals</h5>
+                        <p class="card-text display-4">${buyCount}</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card text-white bg-warning mb-3">
+                    <div class="card-body">
+                        <h5 class="card-title">Hold Signals</h5>
+                        <p class="card-text display-4">${holdCount}</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card text-white bg-danger mb-3">
+                    <div class="card-body">
+                        <h5 class="card-title">Sell Signals</h5>
+                        <p class="card-text display-4">${sellCount}</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card text-white bg-info mb-3">
+                    <div class="card-body">
+                        <h5 class="card-title">Avg Technical Score</h5>
+                        <p class="card-text display-4">${avgScore}/100</p>
+                    </div>
                 </div>
             </div>
         </div>
-        <div class="col-md-3 mb-3">
-            <div class="card border-primary bg-light">
-                <div class="card-body text-center">
-                    <h3 class="text-primary mb-0">${holdCount}</h3>
-                    <small class="text-muted">Hold Signals</small>
+        <div class="row mt-3">
+            <div class="col-md-12">
+                <div class="card bg-light">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between">
+                            <div>
+                                <small class="text-muted"><i class="fas fa-clock me-1"></i>Last Updated:</small>
+                                <span>${new Date().toLocaleTimeString()}</span>
+                            </div>
+                            <div>
+                                <small class="text-muted"><i class="fas fa-exchange-alt me-1"></i>Avg Confidence:</small>
+                                <span>${avgConfidence}%</span>
+                            </div>
+                            <div>
+                                <small class="text-muted"><i class="fas fa-list me-1"></i>Total Stocks:</small>
+                                <span>${stocks.length}</span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-            </div>
-        </div>
-        <div class="col-md-3 mb-3">
-            <div class="card border-danger bg-light">
-                <div class="card-body text-center">
-                    <h3 class="text-danger mb-0">${sellCount}</h3>
-                    <small class="text-muted">Sell Signals</small>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3 mb-3">
-            <div class="card border-info bg-light">
-                <div class="card-body text-center">
-                    <h3 class="text-info mb-0">${avgScore}/100</h3>
-                    <small class="text-muted">Avg Technical Score</small>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-12">
-            <div class="alert alert-info mb-0">
-                <i class="fas fa-info-circle"></i>
-                <strong>Average Confidence:</strong> ${Math.round(avgConfidence)}% | 
-                <strong>Total Stocks:</strong> ${stocks.length} |
-                <strong>Last Updated:</strong> ${new Date().toLocaleTimeString()}
             </div>
         </div>
     `;

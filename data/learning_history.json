@@ -1,0 +1,14 @@
+{
+  "last_updated": "",
+  "total_signals_tracked": 0,
+  "resolved_signals": 0,
+  "win_rate": 0.0,
+  "accuracy_scores": {
+    "overall": 0.0,
+    "by_strategy": {},
+    "by_timeframe": {}
+  },
+  "insights": [],
+  "outcomes": [],
+  "active_signals": {}
+}

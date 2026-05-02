@@ -36,11 +36,16 @@ env/
 # Environment variables
 .env
 
-# Data and logs
-data/
+# Logs (keep directory structure, ignore contents)
 logs/
-*.db
 *.log
+
+# Temporary and runtime files
+*.log
+api.log
+ui.log
+ui_final.log
+ui_start.log
 
 # OS
 .DS_Store

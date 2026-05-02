@@ -128,3 +128,117 @@ Entry points (`main.py`, `start_ui.py`, `run_api.py`) all work unchanged from th
 - Update any remaining documentation referencing `src/` paths (see `PROJECT_STRUCTURE.md`)
 - Consider removing the `legacy/` folder after confirming no references remain
 - Optionally add `infrastructure/` and other new packages to git
+
+## Final Structure (Current)
+
+```
+crypto_scanner/
+├── main.py                   # CLI entry point
+├── scanner.py                # Main orchestrator
+├── start_ui.py               # Web UI entry point
+├── run_api.py                # API runner
+├── config.yaml               # Configuration file
+├── requirements.txt          # Dependencies
+│
+├── ai/                       # AI/LLM integration
+│   ├── __init__.py
+│   ├── signal_validation_agent.py
+│   ├── market_sentiment_analyzer.py
+│   └── abstract.py
+│
+├── alerts/                   # Notification system
+│   ├── __init__.py
+│   ├── alert_manager.py
+│   ├── signal_publisher.py
+│   ├── signal_memory.py
+│   └── telegram_bot.py
+│
+├── collectors/               # Data collection
+│   ├── __init__.py
+│   └── crypto_data_fetcher.py
+│
+├── config/                   # Configuration management
+│   └── __init__.py
+│
+├── dashboard/                # Console dashboard
+│   └── __init__.py
+│
+├── data/                     # Runtime data
+│   └── learning_history.json
+│
+├── docs/                     # Documentation
+│   ├── README.md
+│   ├── archive/              # Archived old docs
+│   └── (other docs)
+│
+├── engines/                  # Core trading engines
+│   ├── __init__.py
+│   ├── market_regime_engine.py
+│   ├── market_sentiment_engine.py
+│   ├── trend_alert_engine.py
+│   ├── coin_filter_engine.py
+│   ├── confluence_engine.py
+│   ├── position_sizer.py
+│   ├── optimization_engine.py
+│   ├── risk_management_engine.py
+│   └── trade_validator.py
+│
+├── filters/                  # Signal filters
+│   └── __init__.py           # BitcoinFilter
+│
+├── indicators/               # Technical indicators
+│   └── __init__.py           # IndicatorEngine
+│
+├── infrastructure/           # Core infrastructure
+│   ├── __init__.py
+│   ├── api.py                # Flask REST API
+│   ├── scanner_scheduler.py
+│   └── market_scheduler.py
+│
+├── learning/                 # Learning system
+│   ├── __init__.py
+│   ├── signal_tracker.py
+│   ├── accuracy_scorer.py
+│   ├── resolution_checker.py
+│   ├── learning_engine.py
+│   ├── trade_journal.py
+│   ├── self_adaptation.py
+│   ├── notifier.py
+│   ├── pattern_learning.py
+│   └── strategy_optimizer.py
+│
+├── legacy/                   # Deprecated NSE code
+│   ├── data_fetcher.py
+│   ├── history_manager.py
+│   └── performance_tracker.py
+│
+├── logs/                     # Application logs
+│
+├── memory/                   # Memory module (placeholder)
+│   └── __init__.py
+│
+├── models/                   # Data models
+│   └── __init__.py
+│
+├── reasoning/                # Hybrid reasoning
+│   └── __init__.py
+│
+├── scorer/                   # Signal scoring
+│   ├── __init__.py
+│   └── enhanced.py
+│
+├── static/                   # Web UI assets
+│   ├── css/
+│   └── js/
+│
+├── storage/                  # Data persistence
+│   └── __init__.py
+│
+├── strategies/               # Trading strategies
+│   ├── __init__.py
+│   ├── mtf_engine.py
+│   └── prd_signal_engine.py
+│
+├── templates/                # HTML templates
+└── tests/                    # Test suite (to be populated)
+```
