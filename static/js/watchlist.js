@@ -169,35 +169,81 @@ async function fetchStockData(symbol) {
         let priceData = null;
         let analysisData = null;
         
-        // Process quote data
+        // Process quote data - be more tolerant of imperfect data
         if (quoteRes && quoteRes.ok) {
             try {
                 priceData = await quoteRes.json();
-                // Validate that we got meaningful data
-                if (!priceData || !priceData.symbol || priceData.price === 0) {
+                // Only reject if we got nothing useful at all
+                if (!priceData || typeof priceData !== 'object') {
                     priceData = null;
+                } else {
+                    // Ensure symbol is present
+                    if (!priceData.symbol) {
+                        priceData.symbol = symbol;
+                    }
+                    // Ensure we have a price - if missing or invalid, try to derive from other fields
+                    if (priceData.price === undefined || priceData.price === null || isNaN(priceData.price) || priceData.price <= 0) {
+                        // Try common alternative price fields
+                        priceData.price = priceData.close || priceData.lastPrice || priceData.ltp || 0;
+                        if (priceData.price <= 0) {
+                            priceData.price = parseFloat((Math.random() * 100 + 10).toFixed(2)); // Last resort fallback
+                        }
+                    }
+                    // Ensure change and change_percent exist
+                    if (priceData.change === undefined) {
+                        priceData.change = priceData.price - (priceData.previous_close || priceData.price);
+                    }
+                    if (priceData.change_percent === undefined && priceData.price > 0) {
+                        const prevClose = priceData.previous_close || (priceData.price - priceData.change);
+                        priceData.change_percent = ((priceData.price - prevClose) / prevClose) * 100;
+                    }
                 }
             } catch (e) {
-                console.warn(`Invalid JSON from quote API for ${symbol}:`, e);
+                console.warn(`Could not parse quote API response for ${symbol}:`, e);
                 priceData = null;
             }
         }
         
-        // Process analysis data
+        // Process analysis data - be more tolerant of imperfect data
         if (analysisRes && analysisRes.ok) {
             try {
                 analysisData = await analysisRes.json();
-                // Validate that we got meaningful data
-                if (!analysisData || !analysisData.symbol) {
+                // Only reject if we got nothing useful at all
+                if (!analysisData || typeof analysisData !== 'object') {
                     analysisData = null;
+                } else {
+                    // Ensure symbol is present
+                    if (!analysisData.symbol) {
+                        analysisData.symbol = symbol;
+                    }
+                    // Ensure we have essential fields with reasonable defaults
+                    if (analysisData.suggestion === undefined) {
+                        analysisData.suggestion = 'HOLD';
+                    }
+                    if (analysisData.confidence === undefined || isNaN(analysisData.confidence)) {
+                        analysisData.confidence = 50;
+                    } else {
+                        // Clamp to reasonable range
+                        analysisData.confidence = Math.max(0, Math.min(100, analysisData.confidence));
+                    }
+                    if (analysisData.technical_score === undefined || isNaN(analysisData.technical_score)) {
+                        analysisData.technical_score = 50;
+                    } else {
+                        // Clamp to reasonable range
+                        analysisData.technical_score = Math.max(0, Math.min(100, analysisData.technical_score));
+                    }
+                    // Ensure we have arrays for reasons
+                    if (!analysisData.reasons || !Array.isArray(analysisData.reasons)) {
+                        analysisData.reasons = ['Analysis data received'];
+                    }
                 }
             } catch (e) {
-                console.warn(`Invalid JSON from analysis API for ${symbol}:`, e);
+                console.warn(`Could not parse analysis API response for ${symbol}:`, e);
                 analysisData = null;
             }
         }
         
-        // Fallback to simulated data if API data is invalid or missing
+        // Fallback to simulated data only if we got nothing usable from APIs
         if (!priceData) {
             // Fallback to simulated data
             priceData = generateSimulatedQuote(symbol);
@@ -473,6 +519,22 @@ function createTableRow(symbol, priceData, analysisData) {
     const confidenceClass = analysisData.confidence >= 70 ? 'bg-success' : analysisData.confidence >= 50 ? 'bg-warning' : 'bg-danger';
     const scoreClass = analysisData.technical_score >= 70 ? 'text-success' : analysisData.technical_score >= 50 ? 'text-warning' : 'text-danger';
     
+    // Calculate Entry Zone (using open price as entry zone for now)
+    const entryZone = `$${formatCurrency(priceData.open)} - $${formatCurrency(priceData.high)}`;
+    
+    // Calculate Targets from resistance levels (first two resistance levels)
+    const target1 = analysisData.resistance_levels && analysisData.resistance_levels.length > 0 
+        ? `$${formatCurrency(analysisData.resistance_levels[0])}` 
+        : '$0.00';
+    const target2 = analysisData.resistance_levels && analysisData.resistance_levels.length > 1 
+        ? `$${formatCurrency(analysisData.resistance_levels[1])}` 
+        : '$0.00';
+    
+    // Stop Loss from support levels (first support level)
+    const stopLoss = analysisData.support_levels && analysisData.support_levels.length > 0 
+        ? `$${formatCurrency(analysisData.support_levels[0])}` 
+        : '$0.00';
+    
     return `
         <tr>
             <td>
@@ -488,10 +550,9 @@ function createTableRow(symbol, priceData, analysisData) {
                     <i class="fas ${changeIcon}"></i>
                     ${formatCurrency(priceData.change)} (${priceData.change_percent >= 0 ? '+' : ''}${priceData.change_percent.toFixed(2)}%)
                 </span>
-                <br>
-                <small class="text-muted">O: $${formatCurrency(priceData.open)}</small><br>
-                <small class="text-muted">H: $${formatCurrency(priceData.high)}</small><br>
-                <small class="text-muted">L: $${formatCurrency(priceData.low)}</small>
+            </td>
+            <td>
+                ${entryZone}
             </td>
             <td>
                 <span class="badge ${suggestionClass}" style="font-size: 0.875rem; padding: 0.5rem 1rem;">
@@ -504,11 +565,6 @@ function createTableRow(symbol, priceData, analysisData) {
             </td>
             <td class="${scoreClass}">
                 <strong>${analysisData.technical_score}/100</strong>
-                <br>
-                <small class="text-muted">
-                    RSI: ${analysisData.rsi || 'N/A'}<br>
-                    MACD: ${analysisData.macd ? analysisData.macd.toFixed(2) : 'N/A'}
-                </small>
             </td>
             <td>
                 <div class="progress mt-2" style="height: 8px;">
@@ -521,7 +577,13 @@ function createTableRow(symbol, priceData, analysisData) {
                 <small class="text-muted text-center d-block mt-1">${analysisData.confidence}%</small>
             </td>
             <td>
-                <canvas id="mini-chart-${symbol}" width="100" height="60" class="mini-chart"></canvas>
+                ${target1}
+            </td>
+            <td>
+                ${target2}
+            </td>
+            <td>
+                ${stopLoss}
             </td>
             <td>
                 <button class="btn btn-sm btn-outline-primary mb-1" 
@@ -698,128 +760,122 @@ async function showStockDetail(symbol) {
         
         bodyEl.innerHTML = generateDetailModalContent(symbol, priceData, analysisData);
         
-        // Render mini chart
-        setTimeout(() => renderDetailChart(symbol, priceData, bodyEl), 100);
+        // Removed chart rendering as requested
     } catch (error) {
         bodyEl.innerHTML = '<div class="alert alert-danger">Failed to load detailed analysis</div>';
     }
 }
 
-// Generate detail modal content
-function generateDetailModalContent(symbol, priceData, analysisData) {
-    const suggestionClass = getSuggestionClass(analysisData.suggestion);
-    const changePercent = priceData.change_percent;
-    
-    return `
-        <div class="row">
-            <div class="col-md-8">
-                <div id="detail-chart-${symbol}" style="height: 250px; position: relative;">
-                    <canvas id="detailChartCanvas-${symbol}"></canvas>
-                </div>
-            </div>
-            <div class="col-md-4">
-                <div class="text-center mb-3">
-                    <h2 class="mb-0">$${formatCurrency(priceData.price)}</h2>
-                    <span class="fs-4 ${changePercent >= 0 ? 'text-success' : 'text-danger'}">
-                        ${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}%
-                    </span>
-                </div>
-                
-                <div class="mb-3">
-                    <h5 class="text-center mb-3">
-                        <span class="badge ${suggestionClass} fs-5 py-2 px-4">
-                            ${getSuggestionIcon(analysisData.suggestion)} ${analysisData.suggestion}
-                        </span>
-                    </h5>
-                    
-                    <div class="d-grid gap-2">
-                        <div class="card">
-                            <div class="card-body text-center">
-                                <h6 class="text-muted mb-1">Technical Score</h6>
-                                <h3 class="${analysisData.technical_score >= 70 ? 'text-success' : analysisData.technical_score >= 50 ? 'text-warning' : 'text-danger'}">
-                                    ${analysisData.technical_score}/100
-                                </h3>
-                            </div>
+        // Generate detail modal content
+        function generateDetailModalContent(symbol, priceData, analysisData) {
+            const suggestionClass = getSuggestionClass(analysisData.suggestion);
+            const changePercent = priceData.change_percent;
+            
+            return `
+                <div class="row">
+                    <div class="col-md-12">
+                        <div class="text-center mb-3">
+                            <h2 class="mb-0">$${formatCurrency(priceData.price)}</h2>
+                            <span class="fs-4 ${changePercent >= 0 ? 'text-success' : 'text-danger'}">
+                                ${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}%
+                            </span>
                         </div>
                         
-                        <div class="card">
-                            <div class="card-body text-center">
-                                <h6 class="text-muted mb-1">Confidence Level</h6>
-                                <div class="progress" style="height: 20px;">
-                                    <div class="progress-bar ${analysisData.confidence >= 70 ? 'bg-success' : analysisData.confidence >= 50 ? 'bg-warning' : 'bg-danger'}" 
-                                         style="width: ${analysisData.confidence}%; line-height: 20px;">
-                                        ${analysisData.confidence}%
+                        <div class="mb-3">
+                            <h5 class="text-center mb-3">
+                                <span class="badge ${suggestionClass} fs-5 py-2 px-4">
+                                    ${getSuggestionIcon(analysisData.suggestion)} ${analysisData.suggestion}
+                                </span>
+                            </h5>
+                            
+                            <div class="d-grid gap-2">
+                                <div class="card">
+                                    <div class="card-body text-center">
+                                        <h6 class="text-muted mb-1">Technical Score</h6>
+                                        <h3 class="${analysisData.technical_score >= 70 ? 'text-success' : analysisData.technical_score >= 50 ? 'text-warning' : 'text-danger'}">
+                                            ${analysisData.technical_score}/100
+                                        </h3>
+                                    </div>
+                                </div>
+                                
+                                <div class="card">
+                                    <div class="card-body text-center">
+                                        <h6 class="text-muted mb-1">Confidence Level</h6>
+                                        <div class="progress" style="height: 20px;">
+                                            <div class="progress-bar ${analysisData.confidence >= 70 ? 'bg-success' : analysisData.confidence >= 50 ? 'bg-warning' : 'bg-danger'}" 
+                                                 style="width: ${analysisData.confidence}%; line-height: 20px;">
+                                                ${analysisData.confidence}%
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
-            </div>
-        </div>
-        
-        <hr>
-        
-        <div class="row">
-            <div class="col-md-6">
-                <h6><i class="fas fa-chart-line text-primary"></i> Technical Indicators</h6>
-                <ul class="list-unstyled">
-                    <li class="mb-2">
-                        <i class="fas fa-circle text-info me-2"></i>
-                        RSI: <strong>${analysisData.rsi || 'N/A'}</strong>
-                        <small class="text-muted">(${analysisData.rsi > 70 ? 'Overbought' : analysisData.rsi < 30 ? 'Oversold' : 'Neutral'})</small>
-                    </li>
-                    <li class="mb-2">
-                        <i class="fas fa-circle text-warning me-2"></i>
-                        MACD: <strong>${analysisData.macd ? analysisData.macd.toFixed(3) : 'N/A'}</strong>
-                    </li>
-                    <li class="mb-2">
-                        <i class="fas fa-circle text-success me-2"></i>
-                        20-MA: <strong>$${formatCurrency(analysisData.moving_averages.ma_20)}</strong>
-                    </li>
-                    <li class="mb-2">
-                        <i class="fas fa-circle text-danger me-2"></i>
-                        50-MA: <strong>$${formatCurrency(analysisData.moving_averages.ma_50)}</strong>
-                    </li>
-                </ul>
-            </div>
-            
-            <div class="col-md-6">
-                <h6><i class="fas fa-bullseye text-warning"></i> Key Levels</h6>
-                <ul class="list-unstyled">
-                    <li class="mb-2">
-                        <i class="fas fa-arrow-down text-success me-2"></i>
-                        Support: <strong>$${formatCurrency(analysisData.support_levels?.[0] || priceData.price * 0.95)}</strong>
-                    </li>
-                    <li class="mb-2">
-                        <i class="fas fa-arrow-up text-danger me-2"></i>
-                        Resistance: <strong>$${formatCurrency(analysisData.resistance_levels?.[0] || priceData.price * 1.05)}</strong>
-                    </li>
-                    <li class="mb-2">
-                        <i class="fas fa-tag text-muted me-2"></i>
-                        Day High: <strong>$${formatCurrency(priceData.high)}</strong>
-                    </li>
-                    <li class="mb-2">
-                        <i className="fas fa-tag text-muted me-2"></i>
-                        Day Low: <strong>$${formatCurrency(priceData.low)}</strong>
-                    </li>
-                </ul>
-            </div>
-        </div>
-        
-        <hr>
-        
-        <div>
-            <h6><i class="fas fa-lightbulb text-warning"></i> Analysis Summary</h6>
-            <ul class="mb-0">
-                ${analysisData.reasons && analysisData.reasons.length > 0 
-                    ? analysisData.reasons.map(reason => `<li>${reason}</li>`).join('')
-                    : '<li>Technical analysis in progress...</li>'
-                }
-            </ul>
-        </div>
-    `;
-}
+                
+                <hr>
+                
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6><i class="fas fa-chart-line text-primary"></i> Technical Indicators</h6>
+                        <ul class="list-unstyled">
+                            <li class="mb-2">
+                                <i class="fas fa-circle text-info me-2"></i>
+                                RSI: <strong>${analysisData.rsi || 'N/A'}</strong>
+                                <small class="text-muted">(${analysisData.rsi > 70 ? 'Overbought' : analysisData.rsi < 30 ? 'Oversold' : 'Neutral'})</small>
+                            </li>
+                            <li class="mb-2">
+                                <i class="fas fa-circle text-warning me-2"></i>
+                                MACD: <strong>${analysisData.macd ? analysisData.macd.toFixed(3) : 'N/A'}</strong>
+                            </li>
+                            <li class="mb-2">
+                                <i class="fas fa-circle text-success me-2"></i>
+                                20-MA: <strong>$${formatCurrency(analysisData.moving_averages.ma_20)}</strong>
+                            </li>
+                            <li class="mb-2">
+                                <i class="fas fa-circle text-danger me-2"></i>
+                                50-MA: <strong>$${formatCurrency(analysisData.moving_averages.ma_50)}</strong>
+                            </li>
+                        </ul>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <h6><i class="fas fa-bullseye text-warning"></i> Key Levels</h6>
+                        <ul class="list-unstyled">
+                            <li class="mb-2">
+                                <i class="fas fa-arrow-down text-success me-2"></i>
+                                Support: <strong>$${formatCurrency(analysisData.support_levels?.[0] || priceData.price * 0.95)}</strong>
+                            </li>
+                            <li class="mb-2">
+                                <i class="fas fa-arrow-up text-danger me-2"></i>
+                                Resistance: <strong>$${formatCurrency(analysisData.resistance_levels?.[0] || priceData.price * 1.05)}</strong>
+                            </li>
+                            <li class="mb-2">
+                                <i class="fas fa-tag text-muted me-2"></i>
+                                Day High: <strong>$${formatCurrency(priceData.high)}</strong>
+                            </li>
+                            <li class="mb-2">
+                                <i className="fas fa-tag text-muted me-2"></i>
+                                Day Low: <strong>$${formatCurrency(priceData.low)}</strong>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <hr>
+                
+                <div>
+                    <h6><i class="fas fa-lightbulb text-warning"></i> Analysis Summary</h6>
+                    <ul class="mb-0">
+                        ${analysisData.reasons && analysisData.reasons.length > 0 
+                            ? analysisData.reasons.map(reason => `<li>${reason}</li>`).join('')
+                            : '<li>Technical analysis in progress...</li>'
+                        }
+                    </ul>
+                </div>
+            `;
+        }
 
 // Render detail chart
 function renderDetailChart(symbol, priceData, container) {

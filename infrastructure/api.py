@@ -18,6 +18,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 
+# For crypto price fetching
+try:
+    import requests
+except ImportError:
+    requests = None
+
 # Crypto scanner imports
 from learning.trade_journal import TradeJournal
 # from learning.signal_tracker import SignalTracker  # Not used in API
@@ -438,6 +444,210 @@ def get_pnl_curve():
         logger.error(f"Error getting P&L curve: {e}")
         return jsonify({"error": str(e)}), 500
 
+def is_crypto_symbol(symbol: str) -> bool:
+    """Check if symbol is a cryptocurrency pair."""
+    # Common crypto pairs ending with -USD, -USDT, -BTC, etc.
+    crypto_suffixes = ['-USD', '-USDT', '-BTC', '-ETH']
+    return any(symbol.endswith(suffix) for suffix in crypto_suffixes) or \
+           symbol in ['BTC', 'ETH', 'BNB', 'XRP', 'ADA', 'SOL', 'DOGE', 'DOT', 'AVAX', 'MATIC']
+
+
+def get_crypto_quote_from_coingecko(symbol: str) -> Optional[Dict]:
+    """Get cryptocurrency quote from CoinGecko API."""
+    try:
+        import requests
+        
+        # Map common symbols to CoinGecko IDs
+        symbol_map = {
+            'BTC-USD': 'bitcoin',
+            'ETH-USD': 'ethereum',
+            'BNB-USD': 'binancecoin',
+            'XRP-USD': 'ripple',
+            'ADA-USD': 'cardano',
+            'SOL-USD': 'solana',
+            'DOGE-USD': 'dogecoin',
+            'DOT-USD': 'polkadot',
+            'AVAX-USD': 'avalanche-2',
+            'MATIC-USD': 'matic-network',
+            'BTC': 'bitcoin',
+            'ETH': 'ethereum',
+            'BNB': 'binancecoin',
+            'XRP': 'ripple',
+            'ADA': 'cardano',
+            'SOL': 'solana',
+            'DOGE': 'dogecoin',
+            'DOT': 'polkadot',
+            'AVAX': 'avalanche-2',
+            'MATIC': 'matic-network'
+        }
+        
+        # Handle both formats: BTC-USD and BTC
+        if symbol in symbol_map:
+            coin_id = symbol_map[symbol]
+        elif symbol.endswith('-USD'):
+            # Convert BTC-USD to bitcoin format
+            coin_base = symbol.replace('-USD', '').lower()
+            # Handle special cases
+            coin_id_map = {
+                'btc': 'bitcoin',
+                'eth': 'ethereum',
+                'bnb': 'binancecoin',
+                'xrp': 'ripple',
+                'ada': 'cardano',
+                'sol': 'solana',
+                'doge': 'dogecoin',
+                'dot': 'polkadot',
+                'avax': 'avalanche-2',
+                'matic': 'matic-network'
+            }
+            coin_id = coin_id_map.get(coin_base, coin_base)
+        else:
+            # Default to lowercase for unknown symbols
+            coin_id = symbol.lower()
+        
+        # Call CoinGecko API
+        url = f"https://api.coingecko.com/api/v3/simple/price"
+        params = {
+            'ids': coin_id,
+            'vs_currencies': 'usd',
+            'include_market_cap': 'true',
+            'include_24hr_vol': 'true',
+            'include_24hr_change': 'true',
+            'include_last_updated_at': 'true'
+        }
+        
+        response = requests.get(url, params=params, timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            if coin_id in data and data[coin_id]:
+                coin_data = data[coin_id]
+                
+                # Calculate change from 24h change percentage
+                price_usd = coin_data.get('usd', 0)
+                change_24h = coin_data.get('usd_24h_change', 0)
+                
+                # For simplicity, we'll use current price and 24h change
+                # In a more sophisticated implementation, we'd calculate open/high/low/volume
+                quote = {
+                    'symbol': symbol,
+                    'price': round(float(price_usd), 2),
+                    'change': round(float(price_usd * change_24h / 100), 2),
+                    'change_percent': round(float(change_24h), 2),
+                    'volume': int(coin_data.get('usd_24h_vol', 0)),
+                    'market_cap': int(coin_data.get('usd_market_cap', 0)),
+                    'timestamp': datetime.utcnow().isoformat(),
+                }
+                return quote
+        
+        return None
+    except Exception as e:
+        logger.warning(f"Could not fetch crypto quote from CoinGecko for {symbol}: {e}")
+        return None
+
+
+def is_crypto_symbol(symbol: str) -> bool:
+    """Check if symbol is a cryptocurrency pair."""
+    # Common crypto pairs ending with -USD, -USDT, -BTC, etc.
+    crypto_suffixes = ['-USD', '-USDT', '-BTC', '-ETH']
+    return any(symbol.endswith(suffix) for suffix in crypto_suffixes) or \
+           symbol in ['BTC', 'ETH', 'BNB', 'XRP', 'ADA', 'SOL', 'DOGE', 'DOT', 'AVAX', 'MATIC']
+
+
+def get_crypto_quote_from_coingecko(symbol: str) -> Optional[Dict]:
+    """Get cryptocurrency quote from CoinGecko API."""
+    if not requests:
+        logger.warning("Requests library not available for crypto price fetching")
+        return None
+    
+    try:
+        # Map common symbols to CoinGecko IDs
+        symbol_map = {
+            'BTC-USD': 'bitcoin',
+            'ETH-USD': 'ethereum',
+            'BNB-USD': 'binancecoin',
+            'XRP-USD': 'ripple',
+            'ADA-USD': 'cardano',
+            'SOL-USD': 'solana',
+            'DOGE-USD': 'dogecoin',
+            'DOT-USD': 'polkadot',
+            'AVAX-USD': 'avalanche-2',
+            'MATIC-USD': 'matic-network',
+            'BTC': 'bitcoin',
+            'ETH': 'ethereum',
+            'BNB': 'binancecoin',
+            'XRP': 'ripple',
+            'ADA': 'cardano',
+            'SOL': 'solana',
+            'DOGE': 'dogecoin',
+            'DOT': 'polkadot',
+            'AVAX': 'avalanche-2',
+            'MATIC': 'matic-network'
+        }
+        
+        # Handle both formats: BTC-USD and BTC
+        if symbol in symbol_map:
+            coin_id = symbol_map[symbol]
+        elif symbol.endswith('-USD'):
+            # Convert BTC-USD to bitcoin format
+            coin_base = symbol.replace('-USD', '').lower()
+            # Handle special cases
+            coin_id_map = {
+                'btc': 'bitcoin',
+                'eth': 'ethereum',
+                'bnb': 'binancecoin',
+                'xrp': 'ripple',
+                'ada': 'cardano',
+                'sol': 'solana',
+                'doge': 'dogecoin',
+                'dot': 'polkadot',
+                'avax': 'avalanche-2',
+                'matic': 'matic-network'
+            }
+            coin_id = coin_id_map.get(coin_base, coin_base)
+        else:
+            # Default to lowercase for unknown symbols
+            coin_id = symbol.lower()
+        
+        # Call CoinGecko API
+        url = f"https://api.coingecko.com/api/v3/simple/price"
+        params = {
+            'ids': coin_id,
+            'vs_currencies': 'usd',
+            'include_market_cap': 'true',
+            'include_24hr_vol': 'true',
+            'include_24hr_change': 'true',
+            'include_last_updated_at': 'true'
+        }
+        
+        response = requests.get(url, params=params, timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            if coin_id in data and data[coin_id]:
+                coin_data = data[coin_id]
+                
+                # Calculate change from 24h change percentage
+                price_usd = coin_data.get('usd', 0)
+                change_24h = coin_data.get('usd_24h_change', 0)
+                
+                # For simplicity, we'll use current price and 24h change
+                # In a more sophisticated implementation, we'd calculate open/high/low/volume
+                quote = {
+                    'symbol': symbol,
+                    'price': round(float(price_usd), 2),
+                    'change': round(float(price_usd * change_24h / 100), 2),
+                    'change_percent': round(float(change_24h), 2),
+                    'volume': int(coin_data.get('usd_24h_vol', 0)),
+                    'market_cap': int(coin_data.get('usd_market_cap', 0)),
+                    'timestamp': datetime.utcnow().isoformat(),
+                }
+                return quote
+        
+        return None
+    except Exception as e:
+        logger.warning(f"Could not fetch crypto quote from CoinGecko for {symbol}: {e}")
+        return None
+
+
 # ============================================================================
 # WATCHLIST ENDPOINTS
 # ============================================================================
@@ -451,6 +661,13 @@ def get_watchlist_quote():
         if not symbol:
             return jsonify({"error": "Symbol is required"}), 400
         
+        # Handle cryptocurrency symbols with CoinGecko API
+        if is_crypto_symbol(symbol):
+            crypto_quote = get_crypto_quote_from_coingecko(symbol)
+            if crypto_quote:
+                return jsonify(crypto_quote)
+        
+        # Fallback to existing data fetcher for non-crypto or if crypto API fails
         if not data_fetcher:
             return jsonify({"error": "Data fetcher not initialized"}), 503
         
