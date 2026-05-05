@@ -392,3 +392,218 @@ class TradeJournal:
             'win_rate': self.calculate_win_rate(),
             'total_pnl': sum(o['pnl_percent'] for o in self._outcomes)
         }
+
+    def add_signal(self, signal_dict: Dict[str, Any]) -> str:
+        """
+        Add a signal from automated scanner as a tracked trade.
+        
+        This is called by the scanner when a signal is generated.
+        The signal is tracked until it hits a target or stop loss.
+        
+        Args:
+            signal_dict: Dictionary with signal details (from TradingSignal.to_dict())
+            
+        Returns:
+            Trade ID
+        """
+        timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        direction_raw = signal_dict.get('direction', 'LONG')
+        if direction_raw.upper() not in ['LONG', 'SHORT', 'BUY', 'SELL']:
+            direction_raw = 'LONG'  # Default
+        
+        # Convert BUY/SELL to LONG/SHORT
+        if direction_raw.upper() == 'BUY':
+            direction = 'LONG'
+        elif direction_raw.upper() == 'SELL':
+            direction = 'SHORT'
+        else:
+            direction = direction_raw.upper()
+        
+        symbol = signal_dict.get('symbol', 'UNKNOWN').upper()
+        
+        signal_id = signal_dict.get('signal_id', signal_dict.get('id', f'{symbol}_{direction}_{timestamp_str}'))
+        trade_id = f"auto_{signal_id}"
+        
+        # Extract entry price from various possible keys
+        entry = signal_dict.get('entry', signal_dict.get('entry_zone_min', signal_dict.get('current_price', signal_dict.get('stop_loss', 0) * 0.98)))
+        
+        # Build trade record
+        trade = {
+            'trade_id': trade_id,
+            'signal_id': signal_id,
+            'symbol': symbol,
+            'direction': direction,
+            'entry_price': entry,
+            'quantity': signal_dict.get('quantity', 1),
+            'entry_time': datetime.now().isoformat(),
+            'stop_loss': signal_dict.get('stop_loss', 0),
+            'target_1': signal_dict.get('target_1', signal_dict.get('targets', [0, 0])[0] if signal_dict.get('targets', []) else 0),
+            'target_2': signal_dict.get('target_2', signal_dict.get('targets', [0, 0])[1] if signal_dict.get('targets', []) and len(signal_dict.get('targets', [])) > 1 else 0),
+            'strategy_type': signal_dict.get('strategy', signal_dict.get('strategy_type', signal_dict.get('signal_type', 'Auto'))),
+            'timeframe': signal_dict.get('timeframe', '1h'),
+            'notes': signal_dict.get('reasoning', signal_dict.get('notes', '')),
+            'status': 'OPEN',
+            'entry_source': 'signal',
+            'current_price': signal_dict.get('current_price', entry),
+            'last_check': datetime.now().isoformat()
+        }
+        
+        self._trades[trade_id] = trade
+        self._save_state()
+        
+        logger.info(f"Added signal as tracked trade {trade_id} for {trade['symbol']}: {direction} @ ${trade['entry_price']:.2f}")
+        return trade_id
+
+    def check_signal_crossings(self, current_prices: Dict[str, float] = None) -> List[SignalOutcome]:
+        """
+        Check all open trades for target or stop loss crossings.
+        Auto-closes trades when targets/stop losses are hit.
+        
+        This enables the learning system to track automated signal outcomes.
+        
+        Args:
+            current_prices: Dictionary of symbol -> current price
+                          If not provided, trades won't be checked against live prices
+                          
+        Returns:
+            List of SignalOutcome objects for closed trades
+        """
+        outcomes = []
+        
+        if not current_prices:
+            logger.debug("No current prices provided, skipping signal crossing check")
+            return outcomes
+        
+        for trade_id, trade in list(self._trades.items()):
+            if trade['status'] != 'OPEN':
+                continue
+            
+            symbol = trade['symbol']
+            if symbol not in current_prices:
+                continue
+            
+            current_price = current_prices[symbol]
+            trade['current_price'] = current_price
+            direction = trade['direction']
+            
+            exit_reason = None
+            exit_price = None
+            
+            if direction == 'LONG':
+                if current_price <= trade['stop_loss']:
+                    exit_reason = 'STOP_LOSS_HIT'
+                    exit_price = trade['stop_loss']
+                elif trade['target_2'] and current_price >= trade['target_2']:
+                    exit_reason = 'TARGET_2_HIT'
+                    exit_price = trade['target_2']
+                elif trade['target_1'] and current_price >= trade['target_1']:
+                    exit_reason = 'TARGET_1_HIT'
+                    exit_price = trade['target_1']
+            elif direction == 'SHORT':
+                if current_price >= trade['stop_loss']:
+                    exit_reason = 'STOP_LOSS_HIT'
+                    exit_price = trade['stop_loss']
+                elif trade['target_2'] and current_price <= trade['target_2']:
+                    exit_reason = 'TARGET_2_HIT'
+                    exit_price = trade['target_2']
+                elif trade['target_1'] and current_price <= trade['target_1']:
+                    exit_reason = 'TARGET_1_HIT'
+                    exit_price = trade['target_1']
+            
+            if exit_reason:
+                outcome = self.journal_exit(trade_id, exit_price, exit_reason, 
+                                           notes="Auto-closed: signal target/stop loss crossed")
+                if outcome:
+                    outcomes.append(outcome)
+        
+        if outcomes:
+            logger.info(f"Auto-closed {len(outcomes)} trades due to target/stop loss crossings")
+        
+        return outcomes
+
+    def update_trade_price(self, symbol: str, current_price: float) -> None:
+        """
+        Update the current price for open trades of a given symbol.
+        Useful for tracking price movements without closing trades.
+        
+        Args:
+            symbol: Trading symbol
+            current_price: Current price
+        """
+        for trade in self._trades.values():
+            if trade['symbol'] == symbol.upper() and trade['status'] == 'OPEN':
+                trade['current_price'] = current_price
+                trade['last_check'] = datetime.now().isoformat()
+
+    def get_closed_trades(self, limit: int = 100) -> List[Dict[str, Any]]:
+        """
+        Get closed trades (trades with CLOSED status).
+        
+        Args:
+            limit: Maximum number of trades to return
+            
+        Returns:
+            List of closed trade dictionaries, sorted by exit time descending
+        """
+        closed = []
+        for trade in self._trades.values():
+            if trade['status'] == 'CLOSED':
+                direction = 'BUY' if trade.get('direction', 'LONG').upper() in ['LONG', 'BUY'] else 'SELL'
+                closed.append({
+                    'trade_id': trade.get('trade_id'),
+                    'symbol': trade.get('symbol'),
+                    'strategy_type': trade.get('strategy_type'),
+                    'timeframe': trade.get('timeframe'),
+                    'direction': direction,
+                    'entry': trade.get('entry_price'),
+                    'stop_loss': trade.get('stop_loss'),
+                    'target_1': trade.get('target_1'),
+                    'target_2': trade.get('target_2'),
+                    'targets': [trade.get('target_1'), trade.get('target_2')] if trade.get('target_1') and trade.get('target_2') else [],
+                    'quantity': trade.get('quantity', 1),
+                    'status': trade.get('status'),
+                    'outcome': trade.get('exit_reason', 'UNKNOWN'),
+                    'exit_price': trade.get('exit_price'),
+                    'pnl_percent': trade.get('pnl_percent'),
+                    'timestamp': trade.get('entry_time'),
+                    'exit_time': trade.get('exit_time'),
+                    'notes': trade.get('notes', ''),
+                    'market_context': trade.get('market_context', '')
+                })
+        
+        # Also add outcome records that may not be in _trades anymore
+        for outcome in self._outcomes:
+            direction = 'BUY' if outcome.get('direction', 'LONG').upper() in ['LONG', 'BUY'] else 'SELL'
+            closed.append({
+                'trade_id': outcome.get('trade_id'),
+                'symbol': outcome.get('symbol'),
+                'strategy_type': outcome.get('strategy_type'),
+                'timeframe': outcome.get('timeframe'),
+                'direction': direction,
+                'entry': outcome.get('entry_price'),
+                'stop_loss': outcome.get('stop_loss'),
+                'target_1': outcome.get('target_1'),
+                'target_2': outcome.get('target_2'),
+                'targets': [outcome.get('target_1'), outcome.get('target_2')] if outcome.get('target_1') and outcome.get('target_2') else [],
+                'quantity': outcome.get('quantity', 1),
+                'status': 'CLOSED',
+                'outcome': outcome.get('resolution', ''),
+                'exit_price': outcome.get('price_at_resolution'),
+                'pnl_percent': outcome.get('pnl_percent'),
+                'timestamp': outcome.get('timestamp'),
+                'exit_time': outcome.get('exit_time'),
+                'notes': outcome.get('notes', ''),
+                'market_context': outcome.get('market_context', '')
+            })
+        
+        # Remove duplicates by trade_id, keeping most recent
+        seen = set()
+        unique = []
+        for trade in sorted(closed, key=lambda t: t.get('exit_time', ''), reverse=True):
+            tid = trade.get('trade_id')
+            if tid not in seen:
+                seen.add(tid)
+                unique.append(trade)
+        
+        return unique[:limit]
