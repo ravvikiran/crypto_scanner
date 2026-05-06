@@ -73,7 +73,13 @@ class CryptoScanner:
         # Initialize AI modules
         self.ai_analyzer = AISignalAnalyzer()
         self.ai_generator = AISignalGenerator()
+        self.ai_sentiment_analyzer = AIMarketSentimentAnalyzer()
+        self.sentiment_monitor = MarketSentimentMonitor()
+        self.signal_validation_agent = AISignalValidationAgent()
         self.hybrid_reasoner = HybridReasoner()
+
+        # Initialize PRD Signal Engine
+        self.prd_engine = PRDSignalEngine()
 
         # Initialize Learning System (Phase 4)
         self.signal_tracker = SignalTracker(self.config)
@@ -168,6 +174,9 @@ class CryptoScanner:
             
             # Step 2: Get top coins
             coins = await self._get_top_coins()
+            
+            # Cache coins for use in learning checks
+            self._coins_cache = {c.symbol: c for c in coins} if coins else {}
             
             # NEW: Step 2a - Analyze Market Sentiment (before processing coins)
             logger.info("=" * 60)
@@ -295,7 +304,7 @@ class CryptoScanner:
                 
                 # NEW: Check for Market Trend Alerts (BULLISH/BEARISH entries)
                 logger.info("Checking for market trend alerts...")
-                trend_alerts = self.trend_alert_engine.check_trend_alerts(market_sentiment_score)
+                trend_alerts = self.market_trend_alert_engine.check_trend_alerts(market_sentiment_score)
                 
                 if trend_alerts:
                     logger.warning("=" * 60)
@@ -416,7 +425,7 @@ class CryptoScanner:
                 # Use normalized confidence (0-100 scale)
                 signal_score = signal.normalized_confidence
                 
-                can_take, reason = self.risk_engine.should_take_signal(signal_score)
+                can_take, reason = self.risk_management_engine.should_take_signal(signal_score)
                 signal.score_breakdown["risk_check"] = reason
                 
                 if can_take:
@@ -1007,34 +1016,34 @@ class CryptoScanner:
             # Check for target/stop loss crossings in trade journal
             # This enables learning from automated signal tracking
             if self.config.learning.enable_learning:
-                # Build current price dict from coins
+                # Build current price dict from cached coins data
                 current_prices = {}
-                if coins:
-                    for coin in coins:
-                        current_prices[coin.symbol] = coin.current_price
+                if self._coins_cache:
+                    for symbol, coin in self._coins_cache.items():
+                        current_prices[symbol] = coin.current_price
                 
-            if current_prices:
-                journal_outcomes = self.trade_journal.check_signal_crossings(current_prices)
-                if journal_outcomes:
-                    logger.info(f"Trade journal auto-closed {len(journal_outcomes)} trades")
-                    # Record these outcomes for learning
-                    for outcome in journal_outcomes:
-                        self.accuracy_scorer.record_outcome(outcome)
-                    
-                    # Update self-adaptation engine with new outcomes
-                    try:
-                        # Convert SignalOutcome objects to dictionaries for adaptation engine
-                        outcome_dicts = []
+                if current_prices:
+                    journal_outcomes = self.trade_journal.check_signal_crossings(current_prices)
+                    if journal_outcomes:
+                        logger.info(f"Trade journal auto-closed {len(journal_outcomes)} trades")
+                        # Record these outcomes for learning
                         for outcome in journal_outcomes:
-                            outcome_dict = outcome.to_dict()
-                            outcome_dict['resolved_at'] = datetime.now().isoformat()
-                            outcome_dicts.append(outcome_dict)
+                            self.accuracy_scorer.record_outcome(outcome)
                         
-                        if outcome_dicts:
-                            self.self_adaptation.generate_adaptations(outcome_dicts)
-                            logger.info(f"Updated self-adaptation with {len(outcome_dicts)} new outcomes")
-                    except Exception as e:
-                        logger.error(f"Failed to update self-adaptation engine: {e}")
+                        # Update self-adaptation engine with new outcomes
+                        try:
+                            # Convert SignalOutcome objects to dictionaries for adaptation engine
+                            outcome_dicts = []
+                            for outcome in journal_outcomes:
+                                outcome_dict = outcome.to_dict()
+                                outcome_dict['resolved_at'] = datetime.now().isoformat()
+                                outcome_dicts.append(outcome_dict)
+                            
+                            if outcome_dicts:
+                                self.self_adaptation.generate_adaptations(outcome_dicts)
+                                logger.info(f"Updated self-adaptation with {len(outcome_dicts)} new outcomes")
+                        except Exception as e:
+                            logger.error(f"Failed to update self-adaptation engine: {e}")
         
         # Generate insights if enough data
         insights_generated = []

@@ -73,7 +73,7 @@ class TradeJournal:
             self._outcomes = []
     
     def _save_state(self) -> None:
-        """Persist journal state to storage."""
+        """Persist journal state to storage atomically."""
         try:
             existing_data = {}
             if self._storage_file.exists():
@@ -87,8 +87,11 @@ class TradeJournal:
             existing_data['outcomes'] = self._outcomes
             existing_data['last_updated'] = datetime.now().isoformat()
             
-            with open(self._storage_file, 'w') as f:
+            # Atomic write: write to temp file then rename
+            tmp_file = self._storage_file.with_suffix('.tmp')
+            with open(tmp_file, 'w') as f:
                 json.dump(existing_data, f, indent=2)
+            tmp_file.replace(self._storage_file)
             
             logger.debug(f"Saved {len(self._trades)} open trades")
         except Exception as e:

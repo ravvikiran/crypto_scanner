@@ -6,7 +6,6 @@ Exposes all scanner data, trades, and controls via REST API.
 import os
 import sys
 import json
-import sqlite3
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
@@ -545,109 +544,6 @@ def get_crypto_quote_from_coingecko(symbol: str) -> Optional[Dict]:
         return None
 
 
-def is_crypto_symbol(symbol: str) -> bool:
-    """Check if symbol is a cryptocurrency pair."""
-    # Common crypto pairs ending with -USD, -USDT, -BTC, etc.
-    crypto_suffixes = ['-USD', '-USDT', '-BTC', '-ETH']
-    return any(symbol.endswith(suffix) for suffix in crypto_suffixes) or \
-           symbol in ['BTC', 'ETH', 'BNB', 'XRP', 'ADA', 'SOL', 'DOGE', 'DOT', 'AVAX', 'MATIC']
-
-
-def get_crypto_quote_from_coingecko(symbol: str) -> Optional[Dict]:
-    """Get cryptocurrency quote from CoinGecko API."""
-    if not requests:
-        logger.warning("Requests library not available for crypto price fetching")
-        return None
-    
-    try:
-        # Map common symbols to CoinGecko IDs
-        symbol_map = {
-            'BTC-USD': 'bitcoin',
-            'ETH-USD': 'ethereum',
-            'BNB-USD': 'binancecoin',
-            'XRP-USD': 'ripple',
-            'ADA-USD': 'cardano',
-            'SOL-USD': 'solana',
-            'DOGE-USD': 'dogecoin',
-            'DOT-USD': 'polkadot',
-            'AVAX-USD': 'avalanche-2',
-            'MATIC-USD': 'matic-network',
-            'BTC': 'bitcoin',
-            'ETH': 'ethereum',
-            'BNB': 'binancecoin',
-            'XRP': 'ripple',
-            'ADA': 'cardano',
-            'SOL': 'solana',
-            'DOGE': 'dogecoin',
-            'DOT': 'polkadot',
-            'AVAX': 'avalanche-2',
-            'MATIC': 'matic-network'
-        }
-        
-        # Handle both formats: BTC-USD and BTC
-        if symbol in symbol_map:
-            coin_id = symbol_map[symbol]
-        elif symbol.endswith('-USD'):
-            # Convert BTC-USD to bitcoin format
-            coin_base = symbol.replace('-USD', '').lower()
-            # Handle special cases
-            coin_id_map = {
-                'btc': 'bitcoin',
-                'eth': 'ethereum',
-                'bnb': 'binancecoin',
-                'xrp': 'ripple',
-                'ada': 'cardano',
-                'sol': 'solana',
-                'doge': 'dogecoin',
-                'dot': 'polkadot',
-                'avax': 'avalanche-2',
-                'matic': 'matic-network'
-            }
-            coin_id = coin_id_map.get(coin_base, coin_base)
-        else:
-            # Default to lowercase for unknown symbols
-            coin_id = symbol.lower()
-        
-        # Call CoinGecko API
-        url = f"https://api.coingecko.com/api/v3/simple/price"
-        params = {
-            'ids': coin_id,
-            'vs_currencies': 'usd',
-            'include_market_cap': 'true',
-            'include_24hr_vol': 'true',
-            'include_24hr_change': 'true',
-            'include_last_updated_at': 'true'
-        }
-        
-        response = requests.get(url, params=params, timeout=5)
-        if response.status_code == 200:
-            data = response.json()
-            if coin_id in data and data[coin_id]:
-                coin_data = data[coin_id]
-                
-                # Calculate change from 24h change percentage
-                price_usd = coin_data.get('usd', 0)
-                change_24h = coin_data.get('usd_24h_change', 0)
-                
-                # For simplicity, we'll use current price and 24h change
-                # In a more sophisticated implementation, we'd calculate open/high/low/volume
-                quote = {
-                    'symbol': symbol,
-                    'price': round(float(price_usd), 2),
-                    'change': round(float(price_usd * change_24h / 100), 2),
-                    'change_percent': round(float(change_24h), 2),
-                    'volume': int(coin_data.get('usd_24h_vol', 0)),
-                    'market_cap': int(coin_data.get('usd_market_cap', 0)),
-                    'timestamp': datetime.utcnow().isoformat(),
-                }
-                return quote
-        
-        return None
-    except Exception as e:
-        logger.warning(f"Could not fetch crypto quote from CoinGecko for {symbol}: {e}")
-        return None
-
-
 # ============================================================================
 # WATCHLIST ENDPOINTS
 # ============================================================================
@@ -927,41 +823,26 @@ def get_top5_signals():
     Returns signals with rank, symbol, score, entry/SL/targets.
     """
     try:
-        # Use performance tracker's database path
-        db_path = getattr(performance_tracker, 'db_path', None) if performance_tracker else None
-        if not db_path:
-            return jsonify({"error": "Database not initialized"}), 503
+        if not performance_tracker:
+            return jsonify({"error": "Performance tracker not initialized"}), 503
 
-        conn = sqlite3.connect(str(db_path))
-        cursor = conn.cursor()
-
-        # Get recent signals (last 20) to allow picking top 5
-        cursor.execute("""
-            SELECT symbol, direction, strategy_type, timeframe,
-                   entry_zone_min, stop_loss, target_1, target_2,
-                   confidence_score
-            FROM signals
-            ORDER BY timestamp DESC
-            LIMIT 20
-        """)
-
-        rows = cursor.fetchall()
-        conn.close()
+        # Use the JSON-based performance tracker
+        top_signals = performance_tracker.get_top_signals(limit=5)
 
         signals = []
-        for row in rows:
+        for sig in top_signals:
             # Normalize score to 0-100 scale (assuming stored as 0-10 or 0-100)
-            raw_score = row[8] if row[8] is not None else 0
+            raw_score = sig.get('confidence_score', 0) or 0
             score = round(raw_score * 10 if raw_score <= 10 else raw_score, 1)
             signals.append({
-                'symbol': row[0],
-                'direction': row[1],
-                'strategy': row[2],
-                'timeframe': row[3],
-                'entry': row[4],
-                'stop_loss': row[5],
-                'target_1': row[6],
-                'target_2': row[7],
+                'symbol': sig.get('symbol', ''),
+                'direction': sig.get('direction', ''),
+                'strategy': sig.get('strategy_type', ''),
+                'timeframe': sig.get('timeframe', ''),
+                'entry': sig.get('entry_zone_min', 0),
+                'stop_loss': sig.get('stop_loss', 0),
+                'target_1': sig.get('target_1', 0),
+                'target_2': sig.get('target_2', 0),
                 'score': score
             })
 

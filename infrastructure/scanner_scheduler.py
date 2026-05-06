@@ -73,6 +73,10 @@ class ScannerScheduler:
         self._signal_publisher = None
         
         self._alert_manager = None
+        
+        # Thread safety lock for job operations
+        import threading
+        self._lock = threading.Lock()
     
     def set_signal_publisher(self, publisher):
         """Set the signal publisher for monitoring."""
@@ -87,45 +91,46 @@ class ScannerScheduler:
         Add the scanner job to the scheduler.
         Based on run_mode: 'continuous' for 15-min scans, 'scheduled' for daily scan.
         """
-        if self.run_mode == 'continuous':
-            scan_interval = self.scheduler_config.get('continuous_interval_minutes', 15)
-            
-            trigger = IntervalTrigger(
-                minutes=scan_interval,
-                timezone=self.timezone
-            )
-            
-            self.job = self.scheduler.add_job(
-                func,
-                trigger=trigger,
-                id=job_id,
-                name=f'Continuous Scanner (Every {scan_interval} minutes)',
-                replace_existing=True
-            )
-            
-            logger.info(f"Continuous scan job scheduled: every {scan_interval} minutes")
-            
-            self._add_monitoring_job()
-            
-        else:
-            trigger = CronTrigger(
-                hour=self.scan_hour,
-                minute=self.scan_minute,
-                day_of_week=self.run_days,
-                timezone=self.timezone
-            )
-            
-            self.job = self.scheduler.add_job(
-                func,
-                trigger=trigger,
-                id=job_id,
-                name=f'Daily Scanner (at {self.scan_hour}:{self.scan_minute:02d} IST)',
-                replace_existing=True
-            )
-            
-            logger.info(f"Daily scan job scheduled: {self.scan_hour}:{self.scan_minute:02d} IST on days {self.run_days}")
-            
-            self._add_monitoring_job()
+        with self._lock:
+            if self.run_mode == 'continuous':
+                scan_interval = self.scheduler_config.get('continuous_interval_minutes', 15)
+                
+                trigger = IntervalTrigger(
+                    minutes=scan_interval,
+                    timezone=self.timezone
+                )
+                
+                self.job = self.scheduler.add_job(
+                    func,
+                    trigger=trigger,
+                    id=job_id,
+                    name=f'Continuous Scanner (Every {scan_interval} minutes)',
+                    replace_existing=True
+                )
+                
+                logger.info(f"Continuous scan job scheduled: every {scan_interval} minutes")
+                
+                self._add_monitoring_job()
+                
+            else:
+                trigger = CronTrigger(
+                    hour=self.scan_hour,
+                    minute=self.scan_minute,
+                    day_of_week=self.run_days,
+                    timezone=self.timezone
+                )
+                
+                self.job = self.scheduler.add_job(
+                    func,
+                    trigger=trigger,
+                    id=job_id,
+                    name=f'Daily Scanner (at {self.scan_hour}:{self.scan_minute:02d} IST)',
+                    replace_existing=True
+                )
+                
+                logger.info(f"Daily scan job scheduled: {self.scan_hour}:{self.scan_minute:02d} IST on days {self.run_days}")
+                
+                self._add_monitoring_job()
     
     def add_mtf_scan_job(self, func: Callable, timeframe: str, job_id: str = None) -> None:
         """
@@ -233,8 +238,11 @@ class ScannerScheduler:
     
     def stop(self) -> None:
         if self.scheduler.running:
-            self.scheduler.shutdown()
-            logger.info("Scheduler stopped")
+            try:
+                self.scheduler.shutdown(wait=False)
+                logger.info("Scheduler stopped")
+            except Exception as e:
+                logger.error(f"Error stopping scheduler: {e}")
     
     def get_next_run(self) -> Optional[datetime]:
         if self.job:

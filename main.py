@@ -116,9 +116,12 @@ def run_scheduled(config: dict, logger):
         # Start Flask API in background thread
         import threading
         def run_api():
-            from infrastructure.api import app as flask_app
-            port = int(os.environ.get('PORT', 5000))
-            flask_app.run(debug=False, host='0.0.0.0', port=port, threaded=True, use_reloader=False)
+            try:
+                from infrastructure.api import app as flask_app
+                port = int(os.environ.get('PORT', 5000))
+                flask_app.run(debug=False, host='0.0.0.0', port=port, threaded=True, use_reloader=False)
+            except Exception as e:
+                logger.error(f"Flask API thread crashed: {e}")
         
         api_thread = threading.Thread(target=run_api, daemon=True)
         api_thread.start()
@@ -148,17 +151,26 @@ def run_scheduled(config: dict, logger):
                             logger.info(f"Published signal: {signal.symbol} ({signal.direction.value})")
                     else:
                         logger.info(f"Daily limit reached, skipping: {signal.symbol}")
+                        break
                 
                 logger.info(f"Published {published_count} signals this scan")
             
             logger.info(f"Scheduled scan complete. {len(signals)} signals generated.")
+        except Exception as e:
+            logger.error(f"Scan job error: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
         finally:
             # Cancel all pending tasks before closing the loop
-            pending = asyncio.all_tasks(loop)
-            for task in pending:
-                task.cancel()
-            # Wait for tasks to complete their cancellation
-            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            try:
+                pending = asyncio.all_tasks(loop)
+                for task in pending:
+                    task.cancel()
+                # Wait for tasks to complete their cancellation
+                if pending:
+                    loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            except Exception:
+                pass
             loop.close()
     
     scheduler.add_job(scan_job)
@@ -189,8 +201,14 @@ def run_scheduled(config: dict, logger):
             time.sleep(60)
             logger.debug(f"Next scan: {scheduler.get_next_run()}")
     except KeyboardInterrupt:
-        logger.info("Shutting down...")
+        logger.info("Shutting down gracefully...")
         scheduler.stop()
+        if telegram_bot:
+            telegram_bot.stop()
+        # Close data fetcher session if it exists
+        if 'data_fetcher' in locals() and data_fetcher:
+            data_fetcher.close()
+        logger.info("Shutdown complete.")
 
 
 async def run_scan(args):

@@ -207,7 +207,40 @@ def get_config() -> Config:
     global _config
     if _config is None:
         _config = Config()
+        _validate_config(_config)
     return _config
+
+
+def _validate_config(config: Config):
+    """Validate configuration and log warnings for missing critical settings."""
+    import logging
+    _logger = logging.getLogger(__name__)
+    
+    # Check Telegram configuration
+    if not config.alerts.telegram_bot_token:
+        _logger.warning("TELEGRAM_BOT_TOKEN not set - Telegram alerts disabled")
+    elif not config.alerts.telegram_chat_id and not config.alerts.telegram_channel_chat_id:
+        _logger.warning("TELEGRAM_CHAT_ID not set - Telegram alerts will not be delivered")
+    
+    # Check AI configuration
+    if config.ai.enabled:
+        provider = config.ai.provider
+        key_map = {
+            "openai": config.ai.openai_api_key,
+            "anthropic": config.ai.anthropic_api_key,
+            "groq": config.ai.groq_api_key,
+            "gemini": config.ai.gemini_api_key,
+            "minimax": config.ai.minimax_api_key,
+        }
+        if provider in key_map and not key_map[provider]:
+            _logger.warning(f"AI provider '{provider}' selected but API key not set - AI analysis will be unavailable")
+    
+    # Validate numeric ranges
+    if config.scanner.min_signal_score < 0 or config.scanner.min_signal_score > 10:
+        _logger.warning(f"MIN_SIGNAL_SCORE ({config.scanner.min_signal_score}) outside expected range 0-10")
+    
+    if config.alerts.max_daily_signals < 1:
+        _logger.warning(f"MAX_DAILY_SIGNALS ({config.alerts.max_daily_signals}) should be at least 1")
 
 
 def reload_config() -> Config:

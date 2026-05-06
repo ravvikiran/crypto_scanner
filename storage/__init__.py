@@ -1,10 +1,10 @@
 """
 Performance Tracking
 Stores and tracks trade results for analysis and AI improvement.
+Uses JSON files for persistence (no SQLite).
 """
 
 import json
-import sqlite3
 from pathlib import Path
 from typing import List, Optional, Dict
 from datetime import datetime
@@ -15,142 +15,100 @@ from config import get_config
 
 
 class PerformanceTracker:
-    """Track and analyze trading performance"""
+    """Track and analyze trading performance using JSON storage"""
     
     def __init__(self):
         self.config = get_config()
-        self.db_path = self._get_db_path()
-        self._init_database()
+        self.data_dir = self._get_data_dir()
+        self._signals_file = self.data_dir / "signals.json"
+        self._trades_file = self.data_dir / "trades.json"
+        self._scans_file = self.data_dir / "scans.json"
+        self._outcomes_file = self.data_dir / "signal_outcomes.json"
+        
+        # In-memory caches loaded from JSON
+        self._signals: List[Dict] = []
+        self._trades: List[Dict] = []
+        self._scans: List[Dict] = []
+        self._outcomes: List[Dict] = []
+        
+        self._load_all()
+        logger.info(f"PerformanceTracker initialized (JSON) at {self.data_dir}")
     
-    def _get_db_path(self) -> Path:
-        """Get database file path"""
+    def _get_data_dir(self) -> Path:
+        """Get data directory path"""
         data_dir = Path(self.config.logging.log_file).parent.parent / "data"
         data_dir.mkdir(exist_ok=True)
-        return data_dir / "performance.db"
+        return data_dir
     
-    def _init_database(self):
-        """Initialize SQLite database"""
+    def _load_json(self, path: Path, default=None):
+        """Load JSON file safely."""
+        if default is None:
+            default = []
+        if not path.exists():
+            return default
         try:
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
-            
-            # Create signals table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS signals (
-                    id TEXT PRIMARY KEY,
-                    timestamp TEXT,
-                    symbol TEXT,
-                    name TEXT,
-                    direction TEXT,
-                    strategy_type TEXT,
-                    timeframe TEXT,
-                    entry_zone_min REAL,
-                    entry_zone_max REAL,
-                    stop_loss REAL,
-                    target_1 REAL,
-                    target_2 REAL,
-                    risk_reward REAL,
-                    confidence_score REAL,
-                    reasoning TEXT,
-                    status TEXT DEFAULT 'ACTIVE'
-                )
-            """)
-            
-            # Create trades table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS trades (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    signal_id TEXT,
-                    timestamp TEXT,
-                    symbol TEXT,
-                    entry_price REAL,
-                    stop_loss REAL,
-                    target_1 REAL,
-                    target_2 REAL,
-                    actual_exit REAL,
-                    actual_direction TEXT,
-                    status TEXT DEFAULT 'OPEN',
-                    pnl_percent REAL,
-                    notes TEXT,
-                    FOREIGN KEY (signal_id) REFERENCES signals(id)
-                )
-            """)
-            
-            # Create scans table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS scans (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT,
-                    btc_trend TEXT,
-                    btc_price REAL,
-                    total_signals INTEGER,
-                    long_signals INTEGER,
-                    short_signals INTEGER,
-                    scan_duration REAL,
-                    market_regime TEXT
-                )
-            """)
-            
-            # Create signal_outcomes table for learning system
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS signal_outcomes (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    signal_id TEXT NOT NULL,
-                    symbol TEXT NOT NULL,
-                    strategy_type TEXT,
-                    timeframe TEXT,
-                    direction TEXT,
-                    entry_price REAL,
-                    resolution TEXT,
-                    exit_price REAL,
-                    pnl_percent REAL,
-                    duration_hours REAL,
-                    expected_correct BOOLEAN,
-                    resolved_at TEXT,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            
-            conn.commit()
-            conn.close()
-            
-            logger.info(f"Database initialized at {self.db_path}")
-            
+            with open(path, 'r', encoding='utf-8') as f:
+                return json.load(f)
         except Exception as e:
-            logger.error(f"Database initialization error: {e}")
+            logger.error(f"Failed to load {path}: {e}")
+            return default
+    
+    def _save_json(self, path: Path, data):
+        """Save JSON file atomically."""
+        tmp = path.with_suffix('.tmp')
+        try:
+            with open(tmp, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, default=str)
+            tmp.replace(path)
+        except Exception as e:
+            logger.error(f"Failed to save {path}: {e}")
+            # Clean up temp file if it exists
+            if tmp.exists():
+                try:
+                    tmp.unlink()
+                except Exception:
+                    pass
+    
+    def _load_all(self):
+        """Load all data from JSON files."""
+        self._signals = self._load_json(self._signals_file, [])
+        self._trades = self._load_json(self._trades_file, [])
+        self._scans = self._load_json(self._scans_file, [])
+        self._outcomes = self._load_json(self._outcomes_file, [])
     
     def save_signal(self, signal: TradingSignal):
-        """Save a trading signal to database"""
+        """Save a trading signal"""
         try:
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
+            signal_data = {
+                "id": signal.id,
+                "timestamp": signal.timestamp.isoformat(),
+                "symbol": signal.symbol,
+                "name": signal.name,
+                "direction": signal.direction.value,
+                "strategy_type": signal.strategy_type.value,
+                "timeframe": signal.timeframe,
+                "entry_zone_min": signal.entry_zone_min,
+                "entry_zone_max": signal.entry_zone_max,
+                "stop_loss": signal.stop_loss,
+                "target_1": signal.target_1,
+                "target_2": signal.target_2,
+                "risk_reward": signal.risk_reward,
+                "confidence_score": signal.confidence_score,
+                "reasoning": signal.reasoning,
+                "status": "ACTIVE"
+            }
             
-            cursor.execute("""
-                INSERT OR REPLACE INTO signals (
-                    id, timestamp, symbol, name, direction, strategy_type,
-                    timeframe, entry_zone_min, entry_zone_max, stop_loss,
-                    target_1, target_2, risk_reward, confidence_score, reasoning
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                signal.id,
-                signal.timestamp.isoformat(),
-                signal.symbol,
-                signal.name,
-                signal.direction.value,
-                signal.strategy_type.value,
-                signal.timeframe,
-                signal.entry_zone_min,
-                signal.entry_zone_max,
-                signal.stop_loss,
-                signal.target_1,
-                signal.target_2,
-                signal.risk_reward,
-                signal.confidence_score,
-                signal.reasoning
-            ))
+            # Replace if exists, otherwise append
+            existing_idx = next(
+                (i for i, s in enumerate(self._signals) if s.get("id") == signal.id),
+                None
+            )
+            if existing_idx is not None:
+                self._signals[existing_idx] = signal_data
+            else:
+                self._signals.append(signal_data)
             
-            conn.commit()
-            conn.close()
+            self._save_json(self._signals_file, self._signals)
             
         except Exception as e:
             logger.error(f"Error saving signal: {e}")
@@ -158,33 +116,29 @@ class PerformanceTracker:
     def save_scan_result(self, signals: List[TradingSignal], scan_duration: float, btc_trend: str, btc_price: float, market_regime: str, detailed_regime: str = None):
         """Save scan results"""
         try:
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
-            
             long_count = sum(1 for s in signals if s.direction == SignalDirection.LONG)
             short_count = sum(1 for s in signals if s.direction == SignalDirection.SHORT)
             
-            # Use detailed regime if provided, otherwise use market_regime
             regime = detailed_regime if detailed_regime else market_regime
             
-            cursor.execute("""
-                INSERT INTO scans (
-                    timestamp, btc_trend, btc_price, total_signals,
-                    long_signals, short_signals, scan_duration, market_regime
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                datetime.now().isoformat(),
-                btc_trend,
-                btc_price,
-                len(signals),
-                long_count,
-                short_count,
-                scan_duration,
-                regime
-            ))
+            scan_data = {
+                "timestamp": datetime.now().isoformat(),
+                "btc_trend": btc_trend,
+                "btc_price": btc_price,
+                "total_signals": len(signals),
+                "long_signals": long_count,
+                "short_signals": short_count,
+                "scan_duration": scan_duration,
+                "market_regime": regime
+            }
             
-            conn.commit()
-            conn.close()
+            self._scans.append(scan_data)
+            
+            # Keep only last 500 scans to prevent unbounded growth
+            if len(self._scans) > 500:
+                self._scans = self._scans[-500:]
+            
+            self._save_json(self._scans_file, self._scans)
             
             # Save individual signals
             for signal in signals:
@@ -196,37 +150,39 @@ class PerformanceTracker:
     def update_trade(self, trade: TradeRecord):
         """Update trade with actual results"""
         try:
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
+            trade_data = {
+                "signal_id": trade.signal_id,
+                "timestamp": trade.timestamp.isoformat(),
+                "symbol": trade.symbol,
+                "entry_price": trade.entry_price,
+                "stop_loss": trade.stop_loss,
+                "target_1": trade.target_1,
+                "target_2": trade.target_2,
+                "actual_exit": trade.actual_exit,
+                "actual_direction": trade.actual_direction.value,
+                "status": trade.status,
+                "pnl_percent": trade.pnl_percent,
+                "notes": trade.notes
+            }
             
-            cursor.execute("""
-                INSERT OR REPLACE INTO trades (
-                    signal_id, timestamp, symbol, entry_price, stop_loss,
-                    target_1, target_2, actual_exit, actual_direction,
-                    status, pnl_percent, notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                trade.signal_id,
-                trade.timestamp.isoformat(),
-                trade.symbol,
-                trade.entry_price,
-                trade.stop_loss,
-                trade.target_1,
-                trade.target_2,
-                trade.actual_exit,
-                trade.actual_direction.value,
-                trade.status,
-                trade.pnl_percent,
-                trade.notes
-            ))
+            # Replace if exists, otherwise append
+            existing_idx = next(
+                (i for i, t in enumerate(self._trades) if t.get("signal_id") == trade.signal_id),
+                None
+            )
+            if existing_idx is not None:
+                self._trades[existing_idx] = trade_data
+            else:
+                self._trades.append(trade_data)
             
             # Update signal status
-            cursor.execute("""
-                UPDATE signals SET status = ? WHERE id = ?
-            """, (trade.status, trade.signal_id))
+            for sig in self._signals:
+                if sig.get("id") == trade.signal_id:
+                    sig["status"] = trade.status
+                    break
             
-            conn.commit()
-            conn.close()
+            self._save_json(self._trades_file, self._trades)
+            self._save_json(self._signals_file, self._signals)
             
         except Exception as e:
             logger.error(f"Error updating trade: {e}")
@@ -234,31 +190,23 @@ class PerformanceTracker:
     def get_statistics(self) -> Dict:
         """Get performance statistics"""
         try:
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
-            
             stats = {}
             
             # Total signals
-            cursor.execute("SELECT COUNT(*) FROM signals")
-            stats["total_signals"] = cursor.fetchone()[0]
+            stats["total_signals"] = len(self._signals)
             
             # Signals by direction
-            cursor.execute("SELECT direction, COUNT(*) FROM signals GROUP BY direction")
-            direction_counts = {row[0]: row[1] for row in cursor.fetchall()}
-            stats["long_signals"] = direction_counts.get("LONG", 0)
-            stats["short_signals"] = direction_counts.get("SHORT", 0)
+            stats["long_signals"] = sum(1 for s in self._signals if s.get("direction") == "LONG")
+            stats["short_signals"] = sum(1 for s in self._signals if s.get("direction") == "SHORT")
             
             # Average confidence
-            cursor.execute("SELECT AVG(confidence_score) FROM signals")
-            stats["avg_confidence"] = cursor.fetchone()[0] or 0
+            confidence_scores = [s.get("confidence_score", 0) for s in self._signals if s.get("confidence_score")]
+            stats["avg_confidence"] = sum(confidence_scores) / len(confidence_scores) if confidence_scores else 0
             
             # Closed trades
-            cursor.execute("SELECT status, COUNT(*) FROM trades GROUP BY status")
-            trade_status = {row[0]: row[1] for row in cursor.fetchall()}
-            stats["closed_trades"] = trade_status.get("CLOSED_WIN", 0) + trade_status.get("CLOSED_LOSS", 0)
-            stats["winning_trades"] = trade_status.get("CLOSED_WIN", 0)
-            stats["losing_trades"] = trade_status.get("CLOSED_LOSS", 0)
+            stats["winning_trades"] = sum(1 for t in self._trades if t.get("status") == "CLOSED_WIN")
+            stats["losing_trades"] = sum(1 for t in self._trades if t.get("status") == "CLOSED_LOSS")
+            stats["closed_trades"] = stats["winning_trades"] + stats["losing_trades"]
             
             # Win rate
             if stats["closed_trades"] > 0:
@@ -267,17 +215,19 @@ class PerformanceTracker:
                 stats["win_rate"] = 0
             
             # Average PnL
-            cursor.execute("SELECT AVG(pnl_percent) FROM trades WHERE status = 'CLOSED_WIN'")
-            stats["avg_win"] = cursor.fetchone()[0] or 0
+            win_pnls = [t.get("pnl_percent", 0) for t in self._trades if t.get("status") == "CLOSED_WIN"]
+            loss_pnls = [t.get("pnl_percent", 0) for t in self._trades if t.get("status") == "CLOSED_LOSS"]
+            stats["avg_win"] = sum(win_pnls) / len(win_pnls) if win_pnls else 0
+            stats["avg_loss"] = sum(loss_pnls) / len(loss_pnls) if loss_pnls else 0
             
-            cursor.execute("SELECT AVG(pnl_percent) FROM trades WHERE status = 'CLOSED_LOSS'")
-            stats["avg_loss"] = cursor.fetchone()[0] or 0
-            
-            # Recent scans
-            cursor.execute("SELECT COUNT(*) FROM scans WHERE timestamp > datetime('now', '-7 days')")
-            stats["scans_last_7_days"] = cursor.fetchone()[0]
-            
-            conn.close()
+            # Recent scans (last 7 days)
+            seven_days_ago = datetime.now().isoformat()[:10]  # Just date part for comparison
+            from datetime import timedelta
+            cutoff = (datetime.now() - timedelta(days=7)).isoformat()
+            stats["scans_last_7_days"] = sum(
+                1 for s in self._scans 
+                if s.get("timestamp", "") >= cutoff
+            )
             
             return stats
             
@@ -285,33 +235,46 @@ class PerformanceTracker:
             logger.error(f"Error getting statistics: {e}")
             return {}
     
+    def get_recent_signals(self, limit: int = 20) -> List[Dict]:
+        """Get most recent signals, sorted by timestamp descending."""
+        sorted_signals = sorted(
+            self._signals,
+            key=lambda s: s.get("timestamp", ""),
+            reverse=True
+        )
+        return sorted_signals[:limit]
+    
+    def get_top_signals(self, limit: int = 5) -> List[Dict]:
+        """Get top signals by confidence score from recent signals."""
+        recent = self.get_recent_signals(limit=20)
+        sorted_by_score = sorted(
+            recent,
+            key=lambda s: s.get("confidence_score", 0),
+            reverse=True
+        )
+        return sorted_by_score[:limit]
+    
     def export_signals_csv(self, filepath: str):
         """Export signals to CSV"""
         try:
             import csv
             
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
-            
-            cursor.execute("SELECT * FROM signals ORDER BY timestamp DESC")
-            rows = cursor.fetchall()
-            
-            if not rows:
+            if not self._signals:
                 logger.warning("No signals to export")
                 return
             
-            # Get column names
-            cursor.execute("PRAGMA table_info(signals)")
-            columns = [row[1] for row in cursor.fetchall()]
+            # Get all keys from signals
+            all_keys = set()
+            for sig in self._signals:
+                all_keys.update(sig.keys())
+            columns = sorted(all_keys)
             
-            with open(filepath, 'w', newline='') as f:
-                writer = csv.writer(f)
-                writer.writerow(columns)
-                writer.writerows(rows)
+            with open(filepath, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.DictWriter(f, fieldnames=columns, extrasaction='ignore')
+                writer.writeheader()
+                writer.writerows(self._signals)
             
-            conn.close()
-            
-            logger.info(f"Exported {len(rows)} signals to {filepath}")
+            logger.info(f"Exported {len(self._signals)} signals to {filepath}")
             
         except Exception as e:
             logger.error(f"Error exporting signals: {e}")

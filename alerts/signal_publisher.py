@@ -33,6 +33,7 @@ class SignalPublisher:
         self.config = get_config()
         self.alert_manager = AlertManager()
         self.trade_journal = TradeJournal(self.config)
+        self.signal_memory = SignalMemory()
         
         self._storage_file = Path("data/signal_publisher.json")
         self._storage_file.parent.mkdir(parents=True, exist_ok=True)
@@ -117,9 +118,6 @@ class SignalPublisher:
             logger.info(f"Publishing signal: {signal.symbol} {signal.direction.value}")
 
             # Check for UPDATE vs NEW using signal_memory
-            from alerts.signal_memory import SignalMemory
-            signal_memory = SignalMemory()
-
             signal_dict = {
                 'symbol': signal.symbol,
                 'signal_type': signal.strategy_type.value,
@@ -135,7 +133,7 @@ class SignalPublisher:
                 'reasoning': signal.reasoning
             }
 
-            is_update, previous = signal_memory.should_send_update(signal_dict)
+            is_update, previous = self.signal_memory.should_send_update(signal_dict)
 
             # Format message
             if is_update and previous:

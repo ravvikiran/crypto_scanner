@@ -370,15 +370,30 @@ Thank you for using Crypto Scanner!
         self._running = True
         
         def run_bot():
-            try:
-                import time
-                # Small delay to ensure webhook cleanup is processed
-                time.sleep(2)
-                logger.info("Starting Telegram bot polling...")
-                self.bot.infinity_polling(timeout=60, long_polling_timeout=60)
-            except Exception as e:
-                logger.error(f"Telegram bot error: {e}")
-                self._running = False
+            max_retries = 3
+            retry_count = 0
+            
+            while self._running and retry_count < max_retries:
+                try:
+                    import time
+                    # Small delay to ensure webhook cleanup is processed
+                    time.sleep(2)
+                    logger.info("Starting Telegram bot polling...")
+                    self.bot.infinity_polling(
+                        timeout=60,
+                        long_polling_timeout=60,
+                        allowed_updates=["message", "callback_query"]
+                    )
+                except Exception as e:
+                    retry_count += 1
+                    if self._running and retry_count < max_retries:
+                        logger.error(f"Telegram bot error (attempt {retry_count}/{max_retries}): {e}")
+                        time.sleep(5 * retry_count)  # Exponential backoff
+                    else:
+                        logger.error(f"Telegram bot stopped after {retry_count} attempts: {e}")
+                        break
+            
+            self._running = False
         
         self._thread = threading.Thread(target=run_bot, daemon=True)
         self._thread.start()

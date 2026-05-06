@@ -24,6 +24,9 @@ class SignalMemory:
 
         self.all_signals: List[Dict] = self._load_json(self.all_signals_file, [])
         self.active_signals: Dict[str, Dict] = self._load_json(self.active_signals_file, {})
+        
+        # Auto-cleanup old signals on initialization
+        self.cleanup_old_signals(days=30)
 
     def _load_json(self, path: Path, default):
         """Load JSON file or return default."""

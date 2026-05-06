@@ -1,9 +1,10 @@
 """
 Optimization Engine
 Strategy performance tracking and auto-optimization.
+Uses JSON files for persistence (no SQLite).
 """
 
-import sqlite3
+import json
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime, timedelta
@@ -32,6 +33,7 @@ class StrategyPerformance:
 class TradeJournal:
     """
     Trade journal system for tracking all trades and outcomes.
+    Uses JSON file for persistence.
     
     Data Model:
     - trade_id
@@ -49,101 +51,79 @@ class TradeJournal:
     
     def __init__(self):
         self.config = get_config()
-        self.db_path = self._get_db_path()
-        self._init_database()
+        self._data_dir = Path(self.config.logging.log_file).parent.parent / "data"
+        self._data_dir.mkdir(exist_ok=True)
+        self._journal_file = self._data_dir / "optimization_journal.json"
+        self._trades: List[Dict] = self._load_trades()
+        logger.info(f"Trade journal initialized (JSON) with {len(self._trades)} trades")
     
-    def _get_db_path(self) -> Path:
-        """Get database file path"""
-        data_dir = Path(self.config.logging.log_file).parent.parent / "data"
-        data_dir.mkdir(exist_ok=True)
-        return data_dir / "trade_journal.db"
-    
-    def _init_database(self):
-        """Initialize trade journal database"""
+    def _load_trades(self) -> List[Dict]:
+        """Load trades from JSON file."""
+        if not self._journal_file.exists():
+            return []
         try:
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
-            
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS trades (
-                    trade_id TEXT PRIMARY KEY,
-                    symbol TEXT NOT NULL,
-                    coin_name TEXT,
-                    strategy_type TEXT NOT NULL,
-                    timeframe TEXT NOT NULL,
-                    direction TEXT,
-                    entry_price REAL,
-                    stop_loss REAL,
-                    target_1 REAL,
-                    target_2 REAL,
-                    exit_price REAL,
-                    outcome TEXT,
-                    pnl_percent REAL,
-                    rr_achieved REAL,
-                    market_regime TEXT,
-                    btc_trend TEXT,
-                    entry_timestamp TEXT,
-                    exit_timestamp TEXT,
-                    notes TEXT,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_symbol ON trades(symbol)
-            """)
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_strategy ON trades(strategy_type)
-            """)
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_timestamp ON trades(entry_timestamp)
-            """)
-            
-            conn.commit()
-            conn.close()
-            
-            logger.info(f"Trade journal initialized at {self.db_path}")
-            
+            with open(self._journal_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
         except Exception as e:
-            logger.error(f"Trade journal initialization error: {e}")
+            logger.error(f"Failed to load trade journal: {e}")
+            return []
+    
+    def _save_trades(self):
+        """Save trades to JSON file atomically."""
+        tmp = self._journal_file.with_suffix('.tmp')
+        try:
+            with open(tmp, 'w', encoding='utf-8') as f:
+                json.dump(self._trades, f, indent=2, default=str)
+            tmp.replace(self._journal_file)
+        except Exception as e:
+            logger.error(f"Failed to save trade journal: {e}")
+            if tmp.exists():
+                try:
+                    tmp.unlink()
+                except Exception:
+                    pass
     
     def log_trade(self, signal: TradingSignal, outcome: str, exit_price: float, pnl_percent: float, rr_achieved: float, market_regime: str = "UNKNOWN"):
         """Log a completed trade"""
         try:
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
+            trade_data = {
+                "trade_id": signal.id,
+                "symbol": signal.symbol,
+                "coin_name": signal.name,
+                "strategy_type": signal.strategy_type.value,
+                "timeframe": signal.timeframe,
+                "direction": signal.direction.value,
+                "entry_price": signal.entry_zone_min,
+                "stop_loss": signal.stop_loss,
+                "target_1": signal.target_1,
+                "target_2": signal.target_2,
+                "exit_price": exit_price,
+                "outcome": outcome,
+                "pnl_percent": pnl_percent,
+                "rr_achieved": rr_achieved,
+                "market_regime": market_regime,
+                "btc_trend": signal.btc_trend.value if hasattr(signal, 'btc_trend') and signal.btc_trend else "UNKNOWN",
+                "entry_timestamp": signal.timestamp.isoformat(),
+                "exit_timestamp": datetime.now().isoformat(),
+                "notes": "",
+                "created_at": datetime.now().isoformat()
+            }
             
-            cursor.execute("""
-                INSERT OR REPLACE INTO trades (
-                    trade_id, symbol, coin_name, strategy_type, timeframe,
-                    direction, entry_price, stop_loss, target_1, target_2,
-                    exit_price, outcome, pnl_percent, rr_achieved, market_regime,
-                    btc_trend, entry_timestamp, exit_timestamp
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                signal.id,
-                signal.symbol,
-                signal.name,
-                signal.strategy_type.value,
-                signal.timeframe,
-                signal.direction.value,
-                signal.entry_zone_min,
-                signal.stop_loss,
-                signal.target_1,
-                signal.target_2,
-                exit_price,
-                outcome,
-                pnl_percent,
-                rr_achieved,
-                market_regime,
-                signal.btc_trend.value,
-                signal.timestamp.isoformat(),
-                datetime.now().isoformat()
-            ))
+            # Replace if exists, otherwise append
+            existing_idx = next(
+                (i for i, t in enumerate(self._trades) if t.get("trade_id") == signal.id),
+                None
+            )
+            if existing_idx is not None:
+                self._trades[existing_idx] = trade_data
+            else:
+                self._trades.append(trade_data)
             
-            conn.commit()
-            conn.close()
+            # Keep only last 1000 trades to prevent unbounded growth
+            if len(self._trades) > 1000:
+                self._trades = self._trades[-1000:]
             
+            self._save_trades()
             logger.info(f"Logged trade {signal.id}: {outcome} ({pnl_percent:.2f}%, RR: {rr_achieved:.2f})")
             
         except Exception as e:
@@ -157,33 +137,22 @@ class TradeJournal:
     ) -> List[Dict]:
         """Get trades from journal"""
         try:
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
-            
-            query = "SELECT * FROM trades WHERE 1=1"
-            params = []
+            filtered = self._trades
             
             if strategy:
-                query += " AND strategy_type = ?"
-                params.append(strategy)
+                filtered = [t for t in filtered if t.get("strategy_type") == strategy]
             
             if symbol:
-                query += " AND symbol = ?"
-                params.append(symbol)
+                filtered = [t for t in filtered if t.get("symbol") == symbol]
             
-            query += " ORDER BY entry_timestamp DESC LIMIT ?"
-            params.append(limit)
+            # Sort by entry_timestamp descending
+            filtered = sorted(
+                filtered,
+                key=lambda t: t.get("entry_timestamp", ""),
+                reverse=True
+            )
             
-            cursor.execute(query, params)
-            rows = cursor.fetchall()
-            conn.close()
-            
-            columns = ["trade_id", "symbol", "coin_name", "strategy_type", "timeframe",
-                       "direction", "entry_price", "stop_loss", "target_1", "target_2",
-                       "exit_price", "outcome", "pnl_percent", "rr_achieved", "market_regime",
-                       "btc_trend", "entry_timestamp", "exit_timestamp", "notes", "created_at"]
-            
-            return [dict(zip(columns, row)) for row in rows]
+            return filtered[:limit]
             
         except Exception as e:
             logger.error(f"Error getting trades: {e}")
@@ -209,32 +178,26 @@ class TradeJournal:
             - by_regime: performance by market regime
         """
         try:
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
-            
-            query = "SELECT * FROM trades WHERE outcome IS NOT NULL"
-            params = []
+            # Filter trades with outcomes
+            filtered = [t for t in self._trades if t.get("outcome")]
             
             if strategy:
-                query += " AND strategy_type = ?"
-                params.append(strategy)
+                filtered = [t for t in filtered if t.get("strategy_type") == strategy]
             
             if symbol:
-                query += " AND symbol = ?"
-                params.append(symbol)
+                filtered = [t for t in filtered if t.get("symbol") == symbol]
             
             if timeframe:
-                query += " AND timeframe = ?"
-                params.append(timeframe)
+                filtered = [t for t in filtered if t.get("timeframe") == timeframe]
             
-            query += " ORDER BY entry_timestamp DESC LIMIT ?"
-            params.append(lookback_trades)
+            # Sort by timestamp descending and limit
+            filtered = sorted(
+                filtered,
+                key=lambda t: t.get("entry_timestamp", ""),
+                reverse=True
+            )[:lookback_trades]
             
-            cursor.execute(query, params)
-            rows = cursor.fetchall()
-            conn.close()
-            
-            if not rows:
+            if not filtered:
                 return {
                     "sample_size": 0,
                     "win_rate": 0.5,
@@ -245,30 +208,25 @@ class TradeJournal:
                     "by_timeframe": {}
                 }
             
-            columns = ["trade_id", "symbol", "coin_name", "strategy_type", "timeframe",
-                       "direction", "entry_price", "stop_loss", "target_1", "target_2",
-                       "exit_price", "outcome", "pnl_percent", "rr_achieved", "market_regime",
-                       "btc_trend", "entry_timestamp", "exit_timestamp", "notes", "created_at"]
+            wins = [t for t in filtered if t.get("outcome") == "WIN"]
+            losses = [t for t in filtered if t.get("outcome") == "LOSS"]
             
-            trades = [dict(zip(columns, row)) for row in rows]
+            win_rate = len(wins) / len(filtered) if filtered else 0.5
             
-            wins = [t for t in trades if t["outcome"] == "WIN"]
-            losses = [t for t in trades if t["outcome"] == "LOSS"]
+            rr_values = [t.get("rr_achieved", 0) for t in filtered if t.get("rr_achieved")]
+            avg_rr = sum(rr_values) / len(rr_values) if rr_values else 0
             
-            win_rate = len(wins) / len(trades) if trades else 0.5
+            avg_win = sum(t.get("pnl_percent", 0) for t in wins) / len(wins) if wins else 0
+            avg_loss = abs(sum(t.get("pnl_percent", 0) for t in losses) / len(losses)) if losses else 0
             
-            avg_rr = sum(t["rr_achieved"] for t in trades if t["rr_achieved"]) / len(trades) if trades else 0
-            
-            avg_win = sum(t["pnl_percent"] for t in wins) / len(wins) if wins else 0
-            avg_loss = abs(sum(t["pnl_percent"] for t in losses) / len(losses)) if losses else 0
-            
+            # Performance by regime
             by_regime = {}
-            for t in trades:
-                regime = t["market_regime"] or "UNKNOWN"
+            for t in filtered:
+                regime = t.get("market_regime") or "UNKNOWN"
                 if regime not in by_regime:
                     by_regime[regime] = {"total": 0, "wins": 0}
                 by_regime[regime]["total"] += 1
-                if t["outcome"] == "WIN":
+                if t.get("outcome") == "WIN":
                     by_regime[regime]["wins"] += 1
             
             for regime in by_regime:
@@ -277,13 +235,13 @@ class TradeJournal:
                 by_regime[regime]["win_rate"] = wins_count / total if total > 0 else 0
             
             return {
-                "sample_size": len(trades),
+                "sample_size": len(filtered),
                 "win_rate": win_rate,
                 "avg_rr": avg_rr,
                 "avg_win": avg_win,
                 "avg_loss": avg_loss,
                 "by_regime": by_regime,
-                "trades": trades[:10]
+                "trades": filtered[:10]
             }
             
         except Exception as e:

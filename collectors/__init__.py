@@ -215,35 +215,57 @@ class MarketDataCollector:
         try:
             # Binance klines endpoint
             binance_symbol = f"{symbol}USDT" if not symbol.endswith("USDT") else symbol
-            url = f"https://api.binance.com/api/v3/klines"
+            
+            endpoints = [
+                "https://data-api.binance.vision/api/v3/klines",
+                "https://api.binance.com/api/v3/klines",
+                "https://api1.binance.com/api/v3/klines",
+                "https://api2.binance.com/api/v3/klines"
+            ]
+            
             params = {
                 "symbol": binance_symbol,
                 "interval": self.timeframe_map.get(timeframe, "1h"),
                 "limit": limit
             }
             
-            async with self.session.get(url, params=params) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    
-                    for item in data:
-                        candle = OHLCV(
-                            timestamp=datetime.fromtimestamp(item[0] / 1000),
-                            open=float(item[1]),
-                            high=float(item[2]),
-                            low=float(item[3]),
-                            close=float(item[4]),
-                            volume=float(item[5])
-                        )
-                        candles.append(candle)
-                    
-                    # PRD: Data validation
-                    if not self._validate_candles(candles):
-                        logger.warning(f"Candle validation failed for {symbol} {timeframe}")
-                        return []
-                    
-                    # Cache the validated candles
-                    cache.set(symbol, timeframe, candles)
+            success = False
+            for url in endpoints:
+                if success:
+                    break
+                try:
+                    async with self.session.get(url, params=params) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            
+                            for item in data:
+                                candle = OHLCV(
+                                    timestamp=datetime.fromtimestamp(item[0] / 1000),
+                                    open=float(item[1]),
+                                    high=float(item[2]),
+                                    low=float(item[3]),
+                                    close=float(item[4]),
+                                    volume=float(item[5])
+                                )
+                                candles.append(candle)
+                            
+                            # PRD: Data validation
+                            if not self._validate_candles(candles):
+                                logger.warning(f"Candle validation failed for {symbol} {timeframe}")
+                                candles = []
+                                return []
+                            
+                            # Cache the validated candles
+                            cache.set(symbol, timeframe, candles)
+                            success = True
+                        else:
+                            error_text = await response.text()
+                            logger.debug(f"Failed fetching from {url}: {response.status} - {error_text}")
+                except Exception as e:
+                    logger.debug(f"Exception using {url}: {e}")
+            
+            if not success:
+                logger.warning(f"All endpoints failed fetching candles for {symbol} {timeframe}")
                     
         except Exception as e:
             logger.error(f"Error fetching candles for {symbol}: {e}")
