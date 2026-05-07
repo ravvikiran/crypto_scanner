@@ -66,7 +66,8 @@ class BitcoinFilter:
         """
         Filter signals based on BTC trend.
         
-        If BTC is strongly trending, filter out contrarian signals.
+        If BTC is strongly trending, filter out contrarian signals
+        unless they have reasonable confidence.
         """
         if not signals:
             return []
@@ -80,17 +81,17 @@ class BitcoinFilter:
         for signal in signals:
             # Check alignment
             if btc_trend == TrendDirection.BULLISH:
-                # Prefer longs, but allow shorts if very strong setup
+                # Prefer longs, but allow shorts if decent setup
                 if signal.direction.value == "LONG":
                     filtered.append(signal)
-                elif signal.confidence_score >= 8.5:  # High confidence shorts allowed
+                elif signal.confidence_score >= 6.5:  # Allow shorts with reasonable confidence
                     filtered.append(signal)
                     
             elif btc_trend == TrendDirection.BEARISH:
-                # Prefer shorts, but allow longs if very strong setup
+                # Prefer shorts, but allow longs if decent setup
                 if signal.direction.value == "SHORT":
                     filtered.append(signal)
-                elif signal.confidence_score >= 8.5:  # High confidence longs allowed
+                elif signal.confidence_score >= 6.5:  # Allow longs with reasonable confidence
                     filtered.append(signal)
         
         return filtered

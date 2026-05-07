@@ -276,8 +276,8 @@ class RiskManagementEngine:
         if not can_trade:
             return False, reason
         
-        # PRD: Only take signals with score 60+
-        if signal_score < 60:
-            return False, f"Signal score {signal_score} below minimum (60)"
+        # PRD: Only take signals with score 45+
+        if signal_score < 45:
+            return False, f"Signal score {signal_score} below minimum (45)"
         
         return True, "Signal approved by risk management"

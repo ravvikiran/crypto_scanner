@@ -261,7 +261,14 @@ class SelfAdaptationEngine:
         timeframe_weight = self.get_timeframe_weight(timeframe)
         direction_bias = self.get_direction_bias(direction)
         
-        adjusted = signal_confidence * strategy_weight * timeframe_weight * direction_bias
+        # Use averaged weight instead of multiplicative (prevents cascading reduction)
+        # Average the weights, then apply as a single multiplier
+        avg_weight = (strategy_weight + timeframe_weight + direction_bias) / 3.0
+        
+        # Clamp the adjustment to prevent extreme reductions (min 0.7x, max 1.3x)
+        avg_weight = max(0.7, min(1.3, avg_weight))
+        
+        adjusted = signal_confidence * avg_weight
         
         return max(0, min(10, adjusted))
     

@@ -13,7 +13,7 @@ scanner:
   max_coins_to_scan: 500
   min_market_cap_millions: 10
   min_volume_24h_millions: 1
-  min_signal_score: 7.0
+  min_signal_score: 5.5
   timeframes: ["4h", "daily"]
   
   # PRD: Market Universe - Top 100-300 coins by market cap
@@ -27,12 +27,12 @@ scanner:
   # Multi-Timeframe Strategy Configuration
   enable_mtf_strategy: true
   mtf_timeframes: ["daily", "1h", "15m"]
-  mtf_min_confidence: 7.0
+  mtf_min_confidence: 5.5
   
   # PRD Signal Engine Configuration
   enable_prd_strategy: true
   prd_timeframes: ["4h", "daily"]
-  prd_min_confidence: 70.0
+  prd_min_confidence: 55.0
 
 # PRD Data Layer Configuration
 data:
@@ -147,6 +147,6 @@ alerts:
     to: ""
   
   # Alert settings
-  confidence_threshold: 70  # PRD confidence threshold (0-100)
+  confidence_threshold: 55  # PRD confidence threshold (0-100)
   alert_cooldown_hours: 24  # Avoid duplicate alerts within 24 hours
-  max_daily_signals: 3  # Maximum signals to publish per day (long + short combined)
+  max_daily_signals: 5  # Maximum signals to publish per day (long + short combined)

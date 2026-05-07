@@ -416,7 +416,7 @@ class CryptoScanner:
             qualified_signals = self.scorer.filter_signals(all_signals)
             
             # NEW: Step 6b - Apply Confluence Filter
-            qualified_signals = self.confluence_engine.apply_confluence_filter(qualified_signals, min_confluence=6.0)
+            qualified_signals = self.confluence_engine.apply_confluence_filter(qualified_signals, min_confluence=4.5)
             
             # PRD: Step 6c - Apply Risk Management Check
             logger.info("📊 Running PRD Risk Management checks...")
@@ -436,8 +436,8 @@ class CryptoScanner:
             qualified_signals = risk_filtered
             logger.info(f"Risk management: {len(qualified_signals)} signals passed")
             
-            # Step 7: Filter by minimum risk/reward (3R or higher)
-            min_r = 3.0
+            # Step 7: Filter by minimum risk/reward (2R or higher)
+            min_r = 2.0
             qualified_signals = [s for s in qualified_signals if s.risk_reward >= min_r]
             
             # NEW: Step 7b - Check Optimization Engine for strategy weights
@@ -449,7 +449,8 @@ class CryptoScanner:
                 )
                 signal.score_breakdown["optimization_check"] = reason
                 if not should_take:
-                    signal.confidence_score *= 0.5
+                    # Reduce confidence slightly instead of halving it
+                    signal.confidence_score *= 0.85
             
             # NEW: Step 7c - Apply Self-Adaptation based on historical performance
             if self.config.learning.enable_learning:

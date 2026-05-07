@@ -43,9 +43,9 @@ class AlertConfig:
     email_to: str = os.getenv("EMAIL_TO", "")
     
     # Alert Configuration
-    confidence_threshold: float = float(os.getenv("ALERT_CONFIDENCE_THRESHOLD", "70"))
+    confidence_threshold: float = float(os.getenv("ALERT_CONFIDENCE_THRESHOLD", "55"))
     alert_cooldown_hours: int = int(os.getenv("ALERT_COOLDOWN_HOURS", "24"))
-    max_daily_signals: int = int(os.getenv("MAX_DAILY_SIGNALS", "3"))
+    max_daily_signals: int = int(os.getenv("MAX_DAILY_SIGNALS", "5"))
 
 
 @dataclass
@@ -55,18 +55,18 @@ class ScannerConfig:
     max_coins_to_scan: int = int(os.getenv("MAX_COINS_TO_SCAN", "500"))
     min_market_cap_millions: float = float(os.getenv("MIN_MARKET_CAP_MILLIONS", "10"))
     min_volume_24h_millions: float = float(os.getenv("MIN_VOLUME_24H_MILLIONS", "1"))
-    min_signal_score: float = float(os.getenv("MIN_SIGNAL_SCORE", "7.0"))
+    min_signal_score: float = float(os.getenv("MIN_SIGNAL_SCORE", "5.5"))
     timeframes: List[str] = field(default_factory=lambda: os.getenv("TIMEFRAMES", "4h,daily").split(","))
     
     # Multi-timeframe configuration for enhanced strategy
     mtf_timeframes: List[str] = field(default_factory=lambda: os.getenv("MTF_TIMEFRAMES", "daily,1h,15m").split(","))
     enable_mtf_strategy: bool = os.getenv("ENABLE_MTF_STRATEGY", "true").lower() == "true"
-    mtf_min_confidence: float = float(os.getenv("MTF_MIN_CONFIDENCE", "7.0"))
+    mtf_min_confidence: float = float(os.getenv("MTF_MIN_CONFIDENCE", "5.5"))
     
     # PRD Signal Engine Configuration
     enable_prd_strategy: bool = os.getenv("ENABLE_PRD_STRATEGY", "true").lower() == "true"
     prd_timeframes: List[str] = field(default_factory=lambda: ["4h", "daily"])
-    prd_min_confidence: float = 70.0  # 0-100 scale
+    prd_min_confidence: float = 55.0  # 0-100 scale
     
     # Market Universe
     top_coins_by_market_cap: int = int(os.getenv("TOP_COINS_BY_MARKET_CAP", "100"))
