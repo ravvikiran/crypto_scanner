@@ -1,8 +1,6 @@
-[phases.setup]
-nixPkgs = ["python311Full"]
+# Nixpacks configuration for Railway deployment
+# The Python provider auto-detects from requirements.txt
+providers = ["python"]
 
-[phases.install]
-cmds = ["python -m pip install -r requirements.txt"]
-
-[start]
-cmd = "python main_momentum.py"
+[variables]
+PYTHON_VERSION = "3.11"
