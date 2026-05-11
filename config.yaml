@@ -150,3 +150,129 @@ alerts:
   confidence_threshold: 55  # PRD confidence threshold (0-100)
   alert_cooldown_hours: 24  # Avoid duplicate alerts within 24 hours
   max_daily_signals: 5  # Maximum signals to publish per day (long + short combined)
+
+# Momentum Scanner Configuration (WebSocket Streaming)
+momentum_scanner:
+  # Exchange WebSocket connections
+  exchanges:
+    binance:
+      enabled: true
+      ws_url: "wss://stream.binance.com:9443/ws"
+    bybit:
+      enabled: false
+      ws_url: "wss://stream.bybit.com/v5/public/linear"
+    okx:
+      enabled: false
+      ws_url: "wss://ws.okx.com:8443/ws/v5/public"
+
+  # Reconnection settings
+  reconnect:
+    max_attempts: 5
+    initial_delay_seconds: 1.0
+    max_delay_seconds: 60.0
+    connection_timeout_seconds: 10.0
+    stale_data_threshold_seconds: 5.0
+
+  # Streaming configuration
+  streaming:
+    timeframes: ["4h", "1h", "15m"]
+    max_coins: 300
+
+  # Symbols to monitor (top coins by market cap)
+  symbols:
+    - "BTCUSDT"
+    - "ETHUSDT"
+    - "BNBUSDT"
+    - "SOLUSDT"
+    - "XRPUSDT"
+    - "ADAUSDT"
+    - "DOGEUSDT"
+    - "AVAXUSDT"
+    - "DOTUSDT"
+    - "LINKUSDT"
+    - "MATICUSDT"
+    - "UNIUSDT"
+    - "ATOMUSDT"
+    - "LTCUSDT"
+    - "NEARUSDT"
+    - "APTUSDT"
+    - "ARBUSDT"
+    - "OPUSDT"
+    - "INJUSDT"
+    - "SUIUSDT"
+
+  # Alert cooldown (Requirement 15.2)
+  alert_cooldown:
+    default_hours: 4.0
+    min_hours: 1.0
+    max_hours: 48.0
+    max_cache_entries: 500
+    volume_override_threshold_pp: 50.0  # percentage points above previous
+
+  # Journal retention (Requirement 17.7)
+  journal:
+    retention_days: 90
+    storage_path: "data/journal/"
+
+  # Event processing
+  event_processing:
+    queue_max_size: 10000
+    max_concurrent_updates: 50
+
+  # Setup detection parameters
+  setup_detection:
+    compression:
+      min_candles: 3
+      max_candles: 8
+      atr_threshold: 0.75  # 75% of ATR14
+      expiry_candles: 12
+    breakout:
+      volume_multiplier: 1.5
+      close_position_min: 0.33  # upper 33%
+    pullback:
+      ema_proximity_pct: 0.5  # within 0.5% of EMA
+      invalidation_pct: 1.0  # below EMA by 1%
+    entry_confirmation:
+      timeframe: "15m"
+      max_candles: 4  # 1 hour window
+
+  # Scoring weights (deterministic, no AI)
+  scoring:
+    weights:
+      relative_strength: 0.30
+      relative_volume: 0.25
+      breakout_quality: 0.20
+      trend_quality: 0.15
+      market_alignment: 0.10
+    min_risk_reward: 2.0
+    rvol_normalization:
+      min_for_0: 1.0
+      max_for_100: 3.0
+    oi_adjustments:
+      overcrowded_penalty: 0.20
+      weak_oi_penalty: 0.15
+      funding_extreme_threshold: 0.1  # %
+      oi_increase_threshold: 5.0  # %
+
+  # Dynamic Universe Management
+  universe:
+    refresh_minutes: 60          # How often to refresh the universe list
+    min_volume_usd: 50000000     # Minimum 24h volume in USD (50M)
+    min_price: 0.10              # Minimum price in USD
+
+  # Per-Coin ATR Volatility Gate
+  volatility_gate:
+    min_pct: 1.5                 # Minimum ATR14/price ratio (%) - reject dead coins
+    max_pct: 8.0                 # Maximum ATR14/price ratio (%) - reject pump coins
+
+  # BTC Crash Detection (Relaxed Regime Filter)
+  btc_crash_detection:
+    threshold_pct: 3.0           # BTC decline threshold (%) across candle window
+    candle_count: 4              # Number of 1H candles to evaluate for crash
+
+  # Trailing Stop Configuration
+  trailing_stop:
+    t1_action: "breakeven"       # Move stop to entry when T1 is hit
+    t2_trail_pct: 1.0            # Trail 1% below highest price after T2
+    monitor_timeframe: "15m"     # Candle timeframe for monitoring
+    no_data_warning_minutes: 30  # Warn if no data received for this duration

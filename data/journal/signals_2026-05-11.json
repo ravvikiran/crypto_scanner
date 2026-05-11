@@ -1,0 +1,145 @@
+{
+  "signals": [],
+  "rejections": [
+    {
+      "symbol": "OKCOIN",
+      "reason": "Insufficient data: 0 candles (minimum 200 required)",
+      "stage": "Trend_Filter",
+      "indicator_values": {},
+      "timestamp": "2026-05-11T07:26:33.611534"
+    },
+    {
+      "symbol": "OKCOIN",
+      "reason": "Insufficient data: 0 candles (minimum 200 required)",
+      "stage": "Trend_Filter",
+      "indicator_values": {},
+      "timestamp": "2026-05-11T07:26:52.761049"
+    },
+    {
+      "symbol": "OKCOIN",
+      "reason": "Insufficient data: 0 candles (minimum 200 required)",
+      "stage": "Trend_Filter",
+      "indicator_values": {},
+      "timestamp": "2026-05-11T08:09:28.712543"
+    },
+    {
+      "symbol": "OKCOIN",
+      "reason": "Insufficient data: 0 candles (minimum 200 required)",
+      "stage": "Trend_Filter",
+      "indicator_values": {},
+      "timestamp": "2026-05-11T08:14:10.771919"
+    },
+    {
+      "symbol": "OKCOIN",
+      "reason": "Insufficient data: 0 candles (minimum 200 required)",
+      "stage": "Trend_Filter",
+      "indicator_values": {},
+      "timestamp": "2026-05-11T08:14:42.699232"
+    },
+    {
+      "symbol": "OKCOIN",
+      "reason": "Insufficient data: 0 candles (minimum 200 required)",
+      "stage": "Trend_Filter",
+      "indicator_values": {},
+      "timestamp": "2026-05-11T08:22:20.769188"
+    },
+    {
+      "symbol": "OKCOIN",
+      "reason": "Insufficient data: 0 candles (minimum 200 required)",
+      "stage": "Trend_Filter",
+      "indicator_values": {},
+      "timestamp": "2026-05-11T08:22:41.556370"
+    },
+    {
+      "symbol": "OKCOIN",
+      "reason": "Insufficient data: 0 candles (minimum 200 required)",
+      "stage": "Trend_Filter",
+      "indicator_values": {},
+      "timestamp": "2026-05-11T08:23:39.846239"
+    },
+    {
+      "symbol": "OKCOIN",
+      "reason": "Insufficient data: 0 candles (minimum 200 required)",
+      "stage": "Trend_Filter",
+      "indicator_values": {},
+      "timestamp": "2026-05-11T08:25:49.322006"
+    },
+    {
+      "symbol": "OKCOIN",
+      "reason": "Insufficient data: 0 candles (minimum 200 required)",
+      "stage": "Trend_Filter",
+      "indicator_values": {},
+      "timestamp": "2026-05-11T08:27:57.378415"
+    },
+    {
+      "symbol": "OKCOIN",
+      "reason": "Insufficient data: 0 candles (minimum 200 required)",
+      "stage": "Trend_Filter",
+      "indicator_values": {},
+      "timestamp": "2026-05-11T08:29:52.373262"
+    },
+    {
+      "symbol": "OKCOIN",
+      "reason": "Insufficient data: 0 candles (minimum 200 required)",
+      "stage": "Trend_Filter",
+      "indicator_values": {},
+      "timestamp": "2026-05-11T08:31:22.585539"
+    },
+    {
+      "symbol": "OKCOIN",
+      "reason": "Insufficient data: 0 candles (minimum 200 required)",
+      "stage": "Trend_Filter",
+      "indicator_values": {},
+      "timestamp": "2026-05-11T08:41:04.484498"
+    },
+    {
+      "symbol": "OKCOIN",
+      "reason": "Insufficient data: 0 candles (minimum 200 required)",
+      "stage": "Trend_Filter",
+      "indicator_values": {},
+      "timestamp": "2026-05-11T08:41:29.641903"
+    },
+    {
+      "symbol": "OKCOIN",
+      "reason": "Insufficient data: 0 candles (minimum 200 required)",
+      "stage": "Trend_Filter",
+      "indicator_values": {},
+      "timestamp": "2026-05-11T08:42:52.835440"
+    },
+    {
+      "symbol": "OKCOIN",
+      "reason": "Insufficient data: 0 candles (minimum 200 required)",
+      "stage": "Trend_Filter",
+      "indicator_values": {},
+      "timestamp": "2026-05-11T08:44:44.322728"
+    },
+    {
+      "symbol": "OKCOIN",
+      "reason": "Insufficient data: 0 candles (minimum 200 required)",
+      "stage": "Trend_Filter",
+      "indicator_values": {},
+      "timestamp": "2026-05-11T08:51:24.412238"
+    },
+    {
+      "symbol": "OKCOIN",
+      "reason": "Insufficient data: 0 candles (minimum 200 required)",
+      "stage": "Trend_Filter",
+      "indicator_values": {},
+      "timestamp": "2026-05-11T08:52:57.046148"
+    },
+    {
+      "symbol": "OKCOIN",
+      "reason": "Insufficient data: 0 candles (minimum 200 required)",
+      "stage": "Trend_Filter",
+      "indicator_values": {},
+      "timestamp": "2026-05-11T09:29:58.717998"
+    },
+    {
+      "symbol": "OKCOIN",
+      "reason": "Insufficient data: 0 candles (minimum 200 required)",
+      "stage": "Trend_Filter",
+      "indicator_values": {},
+      "timestamp": "2026-05-11T09:31:24.866961"
+    }
+  ]
+}

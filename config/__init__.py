@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 from dotenv import load_dotenv
 
+from config.websocket_config import WebSocketStreamConfig
+
 # Load environment variables
 project_root = Path(__file__).parent.parent
 load_dotenv(project_root / ".env")
@@ -196,6 +198,7 @@ class Config:
     ai: AIConfig = field(default_factory=AIConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     learning: LearningConfig = field(default_factory=LearningConfig)
+    websocket_stream: WebSocketStreamConfig = field(default_factory=WebSocketStreamConfig)
 
 
 # Global config instance

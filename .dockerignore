@@ -1,0 +1,9 @@
+data/
+logs/
+.env
+__pycache__/
+.git/
+venv/
+*.db
+.pytest_cache/
+.kiro/
