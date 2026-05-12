@@ -243,7 +243,10 @@ class MomentumScanner:
 
         # Step 2: Initialize universe to get dynamic symbol list (Requirement 2.1)
         try:
-            universe_symbols = await self._universe_manager.initialize()
+            universe_symbols = await asyncio.wait_for(
+                self._universe_manager.initialize(),
+                timeout=45.0,
+            )
             if universe_symbols:
                 self._symbols = universe_symbols
                 # Update WebSocketManager symbols before starting connections
@@ -251,9 +254,15 @@ class MomentumScanner:
                 logger.info(
                     "Universe initialized with %d symbols", len(self._symbols)
                 )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Universe initialization timed out (45s), using configured symbols (%d)",
+                len(self._symbols),
+            )
         except Exception as e:
             logger.warning(
-                "Universe initialization failed, using configured symbols: %s",
+                "Universe initialization failed, using configured symbols (%d): %s",
+                len(self._symbols),
                 str(e),
             )
 

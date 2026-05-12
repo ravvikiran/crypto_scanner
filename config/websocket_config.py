@@ -110,7 +110,7 @@ class WebSocketStreamConfig:
         default_factory=lambda: int(os.getenv("UNIVERSE_REFRESH_MINUTES", "60"))
     )
     universe_min_volume_usd: float = field(
-        default_factory=lambda: float(os.getenv("UNIVERSE_MIN_VOLUME_USD", "50000000"))
+        default_factory=lambda: float(os.getenv("UNIVERSE_MIN_VOLUME_USD", "10000000"))
     )
     universe_min_price: float = field(
         default_factory=lambda: float(os.getenv("UNIVERSE_MIN_PRICE", "0.10"))

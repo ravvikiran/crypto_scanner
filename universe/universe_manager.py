@@ -167,10 +167,15 @@ class UniverseManager:
         try:
             exchange = await self._get_exchange()
 
-            # Fetch all tickers from Bybit
-            tickers = await exchange.fetch_tickers()
+            # Fetch tickers from Bybit with a timeout (can be slow for all markets)
+            logger.info("Fetching tickers from Bybit API...")
+            tickers = await asyncio.wait_for(
+                exchange.fetch_tickers(params={"category": "linear"}),
+                timeout=30.0,
+            )
+            logger.info(f"Received {len(tickers)} tickers from Bybit")
 
-            # Filter to USDT pairs only (Bybit uses formats like BTC/USDT:USDT for linear)
+            # Filter to USDT pairs only (Bybit linear uses BTC/USDT:USDT format)
             usdt_tickers = {}
             for symbol, ticker in tickers.items():
                 # Accept both spot (BTC/USDT) and linear (BTC/USDT:USDT) formats
@@ -182,7 +187,7 @@ class UniverseManager:
                 usdt_tickers.items(),
                 key=lambda x: float(x[1].get("quoteVolume", 0) or 0),
                 reverse=True,
-            )[:100]
+            )[:200]
 
             # Apply filters
             filtered_symbols: List[str] = []

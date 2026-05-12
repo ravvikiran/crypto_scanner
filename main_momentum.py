@@ -79,28 +79,28 @@ def load_symbols() -> list:
             except Exception as e:
                 logger.warning("Failed to load symbols from config.yaml: %s", e)
 
-    # Default symbols - top crypto pairs by volume
+    # Default symbols - top 100 crypto pairs by volume (fallback if API fails)
     return [
-        "BTCUSDT",
-        "ETHUSDT",
-        "BNBUSDT",
-        "SOLUSDT",
-        "XRPUSDT",
-        "DOGEUSDT",
-        "ADAUSDT",
-        "AVAXUSDT",
-        "DOTUSDT",
-        "MATICUSDT",
-        "LINKUSDT",
-        "UNIUSDT",
-        "ATOMUSDT",
-        "LTCUSDT",
-        "ETCUSDT",
-        "APTUSDT",
-        "ARBUSDT",
-        "OPUSDT",
-        "NEARUSDT",
-        "FILUSDT",
+        "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
+        "DOGEUSDT", "ADAUSDT", "AVAXUSDT", "DOTUSDT", "MATICUSDT",
+        "LINKUSDT", "UNIUSDT", "ATOMUSDT", "LTCUSDT", "ETCUSDT",
+        "APTUSDT", "ARBUSDT", "OPUSDT", "NEARUSDT", "FILUSDT",
+        "SUIUSDT", "PEPEUSDT", "WIFUSDT", "FETUSDT", "INJUSDT",
+        "TIAUSDT", "SEIUSDT", "RUNEUSDT", "STXUSDT", "IMXUSDT",
+        "RENDERUSDT", "JUPUSDT", "WLDUSDT", "ONDOUSDT", "PENDLE",
+        "AAVEUSDT", "MKRUSDT", "SNXUSDT", "LDOUSDT", "RNDRUSDT",
+        "GRTUSDT", "FTMUSDT", "ALGOUSDT", "SANDUSDT", "MANAUSDT",
+        "AXSUSDT", "THETAUSDT", "EGLDUSDT", "FLOWUSDT", "XTZUSDT",
+        "EOSUSDT", "ARUSDT", "CFXUSDT", "MINAUSDT", "KASUSDT",
+        "ORDIUSDT", "BLURUSDT", "BEAMUSDT", "FLOKIUSDT", "BONKUSDT",
+        "TONUSDT", "TRXUSDT", "ICPUSDT", "HBARUSDT", "VETUSDT",
+        "QNTUSDT", "BSVUSDT", "XLMUSDT", "FILUSDT", "ARUSDT",
+        "ENAUSDT", "PYTHUSDT", "JITOUSDT", "DYDXUSDT", "GMXUSDT",
+        "CRVUSDT", "COMPUSDT", "1INCHUSDT", "SUSHIUSDT", "YFIUSDT",
+        "ZRXUSDT", "BATUSDT", "ENJUSDT", "CHZUSDT", "GALAUSDT",
+        "APEUSDT", "LRCUSDT", "CAKEUSDT", "ZILUSDT", "IOSTUSDT",
+        "CELRUSDT", "IOTAUSDT", "ONEUSDT", "ANKRUSDT", "KSMUSDT",
+        "SKLUSDT", "ICXUSDT", "ONTUSDT", "WAVESUSDT", "DASHUSDT",
     ]
 
 
