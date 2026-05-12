@@ -44,6 +44,7 @@ class ExchangeConnection:
         config: WebSocketConfig,
         on_message: Optional[Callable[[dict], Awaitable[None]]] = None,
         on_failure: Optional[Callable[[ConnectionFailureEvent], Awaitable[None]]] = None,
+        on_reconnect: Optional[Callable[[], Awaitable[None]]] = None,
     ):
         """Initialize ExchangeConnection.
 
@@ -52,10 +53,13 @@ class ExchangeConnection:
             on_message: Async callback invoked with each received message.
             on_failure: Async callback invoked when all reconnection attempts
                         are exhausted (emits ConnectionFailureEvent).
+            on_reconnect: Async callback invoked after successful reconnection
+                          to re-subscribe to streams.
         """
         self._config = config
         self._on_message = on_message
         self._on_failure = on_failure
+        self._on_reconnect = on_reconnect
 
         self._ws: Optional[WebSocketClientProtocol] = None
         self._connected: bool = False
@@ -68,7 +72,7 @@ class ExchangeConnection:
         # Drop detection: if no message received within this many seconds,
         # consider the connection dropped. Default to 3x the stale threshold
         # or 30 seconds if not configured.
-        self._message_timeout: float = 30.0
+        self._message_timeout: float = 120.0
 
     @property
     def is_connected(self) -> bool:
@@ -237,6 +241,16 @@ class ExchangeConnection:
                     self._config.exchange,
                     attempt,
                 )
+                # Re-subscribe to streams after reconnection
+                if self._on_reconnect:
+                    try:
+                        await self._on_reconnect()
+                    except Exception as re_err:
+                        logger.warning(
+                            "Re-subscribe after reconnect failed for %s: %s",
+                            self._config.exchange,
+                            str(re_err),
+                        )
                 return True
 
             except (asyncio.TimeoutError, Exception) as e:
@@ -565,6 +579,7 @@ class WebSocketManager:
                 config=ws_config,
                 on_message=self._make_message_handler(exchange),
                 on_failure=self._handle_connection_failure,
+                on_reconnect=self._make_resubscribe_handler(exchange),
             )
 
             self._connections[exchange] = connection
@@ -950,6 +965,27 @@ class WebSocketManager:
 
         async def handler(data: dict) -> None:
             await self._handle_message(exchange, data)
+
+        return handler
+
+    def _make_resubscribe_handler(
+        self, exchange: str
+    ) -> Callable[[], Awaitable[None]]:
+        """Create an exchange-specific re-subscribe handler for reconnection.
+
+        After a WebSocket reconnects, it needs to re-send subscription
+        messages to resume receiving kline data.
+
+        Args:
+            exchange: The exchange name to re-subscribe streams for.
+
+        Returns:
+            An async callable that re-subscribes to all streams.
+        """
+
+        async def handler() -> None:
+            logger.info("Re-subscribing to %s streams after reconnection", exchange)
+            await self._subscribe_streams(exchange)
 
         return handler
 
