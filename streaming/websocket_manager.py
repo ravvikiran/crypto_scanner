@@ -73,7 +73,19 @@ class ExchangeConnection:
     @property
     def is_connected(self) -> bool:
         """Whether the websocket connection is currently active."""
-        return self._connected and self._ws is not None and self._ws.open
+        if not self._connected or self._ws is None:
+            return False
+        # Support both old websockets (<13: .open) and new (>=13: .state)
+        try:
+            return self._ws.open
+        except AttributeError:
+            # websockets v13+: check state instead
+            try:
+                from websockets.protocol import State
+                return self._ws.state == State.OPEN
+            except (ImportError, AttributeError):
+                # Fallback: if we have a ws object and _connected is True, assume open
+                return True
 
     @property
     def exchange(self) -> str:
@@ -254,7 +266,7 @@ class ExchangeConnection:
         """
         while self._running:
             try:
-                if self._ws is None or not self._ws.open:
+                if self._ws is None or not self.is_connected:
                     # Connection lost, attempt reconnection
                     success = await self._reconnect_with_backoff()
                     if not success:
@@ -334,7 +346,7 @@ class ExchangeConnection:
                         elapsed,
                     )
                     # Close the stale connection to trigger reconnection in listen loop
-                    if self._ws is not None and self._ws.open:
+                    if self._ws is not None and self.is_connected:
                         await self._ws.close()
                     self._connected = False
 
