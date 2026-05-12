@@ -42,6 +42,13 @@
       "stage": "Trend_Filter",
       "indicator_values": {},
       "timestamp": "2026-05-12T09:35:11.158934"
+    },
+    {
+      "symbol": "OKCOIN",
+      "reason": "Insufficient data: 0 candles (minimum 200 required)",
+      "stage": "Trend_Filter",
+      "indicator_values": {},
+      "timestamp": "2026-05-12T09:51:45.045953"
     }
   ]
 }

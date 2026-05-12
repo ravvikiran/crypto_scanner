@@ -2,8 +2,10 @@
 Universe Manager - Dynamic Trading Pair Selection.
 
 Fetches and manages the set of actively monitored USDT trading pairs
-from Bybit, filtering by volume and price thresholds. Refreshes
-periodically and handles API failures gracefully.
+from Bybit's public REST API, filtering by volume and price thresholds.
+Refreshes periodically and handles API failures gracefully.
+
+Uses direct HTTP calls (aiohttp) instead of ccxt for reliability.
 
 Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.8, 2.9
 """
@@ -13,25 +15,28 @@ import os
 from datetime import datetime
 from typing import List, Optional, Tuple
 
-import ccxt.async_support as ccxt
+import aiohttp
 from loguru import logger
 
 from streaming.models import UniversePair
 
 
+# Bybit public API endpoint for tickers (no auth required)
+BYBIT_TICKERS_URL = "https://api.bybit.com/v5/market/tickers"
+
+
 class UniverseManager:
     """Dynamically selects and manages the set of monitored trading pairs.
 
-    Fetches the top 100 USDT pairs by 24h volume from Bybit REST API,
+    Fetches the top USDT linear perpetual pairs by 24h volume from Bybit,
     applies volume and price filters, and always includes BTCUSDT.
 
     Args:
-        min_volume_usd: Minimum 24h volume in USD to include a pair (default 50M).
+        min_volume_usd: Minimum 24h volume in USD to include a pair (default 10M).
         min_price: Minimum current price in USD to include a pair (default 0.10).
     """
 
     # Symbol that is always included regardless of filters
-    ALWAYS_INCLUDE = "BTC/USDT:USDT"
     ALWAYS_INCLUDE_SYMBOL = "BTCUSDT"
 
     # Retry delay on API failure (seconds)
@@ -39,7 +44,7 @@ class UniverseManager:
 
     def __init__(
         self,
-        min_volume_usd: float = 50_000_000,
+        min_volume_usd: float = 10_000_000,
         min_price: float = 0.10,
     ):
         self.min_volume_usd = min_volume_usd
@@ -51,33 +56,8 @@ class UniverseManager:
         # Detailed pair data for the current universe
         self._pairs: List[UniversePair] = []
 
-        # Exchange instance (created on first use)
-        self._exchange: Optional[ccxt.bybit] = None
-
         # Track initialization state
         self._initialized: bool = False
-
-    async def _get_exchange(self) -> ccxt.bybit:
-        """Get or create the ccxt Bybit exchange instance."""
-        if self._exchange is None:
-            config = {
-                "enableRateLimit": True,
-            }
-            # Use API keys if available (not required for public endpoints)
-            api_key = os.getenv("BYBIT_API_KEY")
-            api_secret = os.getenv("BYBIT_API_SECRET")
-            if api_key and api_secret:
-                config["apiKey"] = api_key
-                config["secret"] = api_secret
-
-            self._exchange = ccxt.bybit(config)
-        return self._exchange
-
-    async def _close_exchange(self) -> None:
-        """Close the exchange connection."""
-        if self._exchange is not None:
-            await self._exchange.close()
-            self._exchange = None
 
     async def initialize(self) -> List[str]:
         """Fetch initial universe from Bybit REST API.
@@ -86,7 +66,7 @@ class UniverseManager:
             List of active symbol strings (e.g. ["BTCUSDT", "ETHUSDT", ...]).
 
         Raises:
-            Exception: If the initial fetch fails and there is no previous list.
+            RuntimeError: If the initial fetch fails and there is no previous list.
         """
         symbols = await self._fetch_and_filter()
         if symbols is not None:
@@ -96,7 +76,6 @@ class UniverseManager:
                 f"Universe initialized with {len(self._active_symbols)} symbols"
             )
         else:
-            # On initial failure with no previous data, raise
             if not self._active_symbols:
                 logger.error(
                     "Universe initialization failed and no previous list available"
@@ -104,7 +83,6 @@ class UniverseManager:
                 raise RuntimeError(
                     "Failed to initialize universe: Bybit API unavailable"
                 )
-            # Otherwise retain previous (shouldn't happen on first init)
             logger.warning(
                 "Universe initialization failed, retaining previous list "
                 f"({len(self._active_symbols)} symbols)"
@@ -122,7 +100,6 @@ class UniverseManager:
         new_symbols = await self._fetch_and_filter()
 
         if new_symbols is None:
-            # API failure: retain previous list, schedule retry after 5 minutes
             logger.warning(
                 f"Universe refresh failed, retaining previous list "
                 f"({len(self._active_symbols)} symbols). "
@@ -151,62 +128,86 @@ class UniverseManager:
         return (added, removed)
 
     def get_active_symbols(self) -> List[str]:
-        """Return current active symbol list.
-
-        Returns:
-            List of active symbol strings (e.g. ["BTCUSDT", "ETHUSDT", ...]).
-        """
+        """Return current active symbol list."""
         return list(self._active_symbols)
 
     async def _fetch_and_filter(self) -> Optional[List[str]]:
-        """Fetch top 100 USDT pairs by volume and apply filters.
+        """Fetch top USDT linear pairs by volume from Bybit and apply filters.
+
+        Uses Bybit's public /v5/market/tickers endpoint directly via aiohttp.
+        No API key required.
 
         Returns:
             Filtered list of symbol strings, or None on API failure.
         """
         try:
-            exchange = await self._get_exchange()
-
-            # Fetch tickers from Bybit with a timeout (can be slow for all markets)
             logger.info("Fetching tickers from Bybit API...")
-            tickers = await asyncio.wait_for(
-                exchange.fetch_tickers(params={"category": "linear"}),
-                timeout=30.0,
-            )
+
+            async with aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=20.0)
+            ) as session:
+                async with session.get(
+                    BYBIT_TICKERS_URL,
+                    params={"category": "linear"},
+                ) as response:
+                    if response.status != 200:
+                        logger.error(
+                            f"Bybit API returned status {response.status}"
+                        )
+                        return None
+
+                    data = await response.json()
+
+            # Bybit response format: {"retCode": 0, "result": {"list": [...]}}
+            if data.get("retCode") != 0:
+                logger.error(
+                    f"Bybit API error: {data.get('retMsg', 'unknown')}"
+                )
+                return None
+
+            tickers = data.get("result", {}).get("list", [])
             logger.info(f"Received {len(tickers)} tickers from Bybit")
 
-            # Filter to USDT pairs only (Bybit linear uses BTC/USDT:USDT format)
-            usdt_tickers = {}
-            for symbol, ticker in tickers.items():
-                # Accept both spot (BTC/USDT) and linear (BTC/USDT:USDT) formats
-                if ("/USDT" in symbol) and ticker.get("quoteVolume") is not None:
-                    usdt_tickers[symbol] = ticker
+            if not tickers:
+                logger.warning("Bybit returned empty ticker list")
+                return None
 
-            # Sort by 24h quote volume (USD) descending, take top 100
-            sorted_pairs = sorted(
-                usdt_tickers.items(),
-                key=lambda x: float(x[1].get("quoteVolume", 0) or 0),
-                reverse=True,
-            )[:200]
+            # Each ticker has: symbol, lastPrice, volume24h, turnover24h
+            # turnover24h = volume in USDT (quote volume)
+            # Sort by turnover (USDT volume) descending, take top 200
+            valid_tickers = []
+            for t in tickers:
+                symbol = t.get("symbol", "")
+                # Only USDT pairs
+                if not symbol.endswith("USDT"):
+                    continue
+                turnover = float(t.get("turnover24h", 0) or 0)
+                price = float(t.get("lastPrice", 0) or 0)
+                valid_tickers.append({
+                    "symbol": symbol,
+                    "turnover": turnover,
+                    "price": price,
+                })
+
+            # Sort by 24h turnover descending
+            valid_tickers.sort(key=lambda x: x["turnover"], reverse=True)
+            top_pairs = valid_tickers[:200]
 
             # Apply filters
             filtered_symbols: List[str] = []
             self._pairs = []
 
-            for symbol, ticker in sorted_pairs:
-                volume_usd = float(ticker.get("quoteVolume", 0) or 0)
-                price = float(ticker.get("last", 0) or 0)
-
-                # Convert ccxt symbol format to exchange format (BTCUSDT)
-                # Handle both "BTC/USDT" and "BTC/USDT:USDT" formats
-                exchange_symbol = symbol.split(":")[0].replace("/", "")
+            for pair in top_pairs:
+                symbol = pair["symbol"]
+                volume_usd = pair["turnover"]
+                price = pair["price"]
 
                 # Always include BTCUSDT regardless of filters
-                if exchange_symbol == self.ALWAYS_INCLUDE_SYMBOL:
-                    filtered_symbols.append(exchange_symbol)
+                if symbol == self.ALWAYS_INCLUDE_SYMBOL:
+                    filtered_symbols.append(symbol)
                     self._pairs.append(
                         UniversePair(
-                            symbol=exchange_symbol,
+                            symbol=symbol,
                             volume_24h_usd=volume_usd,
                             current_price=price,
                             last_updated=datetime.utcnow(),
@@ -222,21 +223,17 @@ class UniverseManager:
                 if price < self.min_price:
                     continue
 
-                # Avoid duplicates (same symbol from spot and linear)
-                if exchange_symbol in filtered_symbols:
-                    continue
-
-                filtered_symbols.append(exchange_symbol)
+                filtered_symbols.append(symbol)
                 self._pairs.append(
                     UniversePair(
-                        symbol=exchange_symbol,
+                        symbol=symbol,
                         volume_24h_usd=volume_usd,
                         current_price=price,
                         last_updated=datetime.utcnow(),
                     )
                 )
 
-            # Ensure BTCUSDT is always present even if not in top 100
+            # Ensure BTCUSDT is always present
             if self.ALWAYS_INCLUDE_SYMBOL not in filtered_symbols:
                 filtered_symbols.insert(0, self.ALWAYS_INCLUDE_SYMBOL)
                 self._pairs.insert(
@@ -249,8 +246,15 @@ class UniverseManager:
                     ),
                 )
 
+            logger.info(
+                f"Filtered to {len(filtered_symbols)} symbols "
+                f"(min volume: ${self.min_volume_usd/1e6:.0f}M, min price: ${self.min_price})"
+            )
             return filtered_symbols
 
+        except asyncio.TimeoutError:
+            logger.error("Bybit API request timed out (20s)")
+            return None
         except Exception as e:
             logger.error(f"Failed to fetch universe from Bybit API: {e}")
             return None
@@ -262,13 +266,10 @@ class UniverseManager:
     @staticmethod
     def filter_pairs(
         pairs: List[dict],
-        min_volume_usd: float = 50_000_000,
+        min_volume_usd: float = 10_000_000,
         min_price: float = 0.10,
     ) -> List[str]:
         """Pure filtering logic for testability.
-
-        Applies volume and price filters to a list of pair dicts,
-        always including BTCUSDT.
 
         Args:
             pairs: List of dicts with keys 'symbol', 'volume_24h_usd', 'current_price'.
@@ -285,27 +286,23 @@ class UniverseManager:
             volume = float(pair.get("volume_24h_usd", 0))
             price = float(pair.get("current_price", 0))
 
-            # Always include BTCUSDT
             if symbol == "BTCUSDT":
                 filtered.append(symbol)
                 continue
 
-            # Apply volume filter
             if volume < min_volume_usd:
                 continue
 
-            # Apply price filter
             if price < min_price:
                 continue
 
             filtered.append(symbol)
 
-        # Ensure BTCUSDT is present even if not in input
         if "BTCUSDT" not in filtered:
             filtered.insert(0, "BTCUSDT")
 
         return filtered
 
     async def close(self) -> None:
-        """Clean up resources."""
-        await self._close_exchange()
+        """Clean up resources (no-op since we use per-request sessions)."""
+        pass
