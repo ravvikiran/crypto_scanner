@@ -1,0 +1,19 @@
+{
+  "signals": [],
+  "rejections": [
+    {
+      "symbol": "OKCOIN",
+      "reason": "Insufficient data: 0 candles (minimum 200 required)",
+      "stage": "Trend_Filter",
+      "indicator_values": {},
+      "timestamp": "2026-05-12T06:39:00.194129"
+    },
+    {
+      "symbol": "OKCOIN",
+      "reason": "Insufficient data: 0 candles (minimum 200 required)",
+      "stage": "Trend_Filter",
+      "indicator_values": {},
+      "timestamp": "2026-05-12T06:39:56.870759"
+    }
+  ]
+}

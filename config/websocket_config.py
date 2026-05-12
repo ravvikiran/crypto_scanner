@@ -45,10 +45,10 @@ class WebSocketStreamConfig:
 
     # --- Exchange Enable Flags ---
     enable_binance: bool = field(
-        default_factory=lambda: os.getenv("WS_ENABLE_BINANCE", "true").lower() == "true"
+        default_factory=lambda: os.getenv("WS_ENABLE_BINANCE", "false").lower() == "true"
     )
     enable_bybit: bool = field(
-        default_factory=lambda: os.getenv("WS_ENABLE_BYBIT", "false").lower() == "true"
+        default_factory=lambda: os.getenv("WS_ENABLE_BYBIT", "true").lower() == "true"
     )
     enable_okx: bool = field(
         default_factory=lambda: os.getenv("WS_ENABLE_OKX", "false").lower() == "true"
@@ -142,7 +142,7 @@ class WebSocketStreamConfig:
 
         # Ensure at least one exchange is enabled
         if not any([self.enable_binance, self.enable_bybit, self.enable_okx]):
-            self.enable_binance = True
+            self.enable_bybit = True
 
         # Validate positive numeric values
         if self.reconnect_max_attempts < 1:

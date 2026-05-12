@@ -2,7 +2,7 @@
 Universe Manager - Dynamic Trading Pair Selection.
 
 Fetches and manages the set of actively monitored USDT trading pairs
-from Binance, filtering by volume and price thresholds. Refreshes
+from Bybit, filtering by volume and price thresholds. Refreshes
 periodically and handles API failures gracefully.
 
 Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.8, 2.9
@@ -22,7 +22,7 @@ from streaming.models import UniversePair
 class UniverseManager:
     """Dynamically selects and manages the set of monitored trading pairs.
 
-    Fetches the top 100 USDT pairs by 24h volume from Binance REST API,
+    Fetches the top 100 USDT pairs by 24h volume from Bybit REST API,
     applies volume and price filters, and always includes BTCUSDT.
 
     Args:
@@ -31,7 +31,7 @@ class UniverseManager:
     """
 
     # Symbol that is always included regardless of filters
-    ALWAYS_INCLUDE = "BTC/USDT"
+    ALWAYS_INCLUDE = "BTC/USDT:USDT"
     ALWAYS_INCLUDE_SYMBOL = "BTCUSDT"
 
     # Retry delay on API failure (seconds)
@@ -45,32 +45,32 @@ class UniverseManager:
         self.min_volume_usd = min_volume_usd
         self.min_price = min_price
 
-        # Current active symbols (Binance format, e.g. "BTCUSDT")
+        # Current active symbols (e.g. "BTCUSDT")
         self._active_symbols: List[str] = []
 
         # Detailed pair data for the current universe
         self._pairs: List[UniversePair] = []
 
         # Exchange instance (created on first use)
-        self._exchange: Optional[ccxt.binance] = None
+        self._exchange: Optional[ccxt.bybit] = None
 
         # Track initialization state
         self._initialized: bool = False
 
-    async def _get_exchange(self) -> ccxt.binance:
-        """Get or create the ccxt Binance exchange instance."""
+    async def _get_exchange(self) -> ccxt.bybit:
+        """Get or create the ccxt Bybit exchange instance."""
         if self._exchange is None:
             config = {
                 "enableRateLimit": True,
             }
             # Use API keys if available (not required for public endpoints)
-            api_key = os.getenv("BINANCE_API_KEY")
-            api_secret = os.getenv("BINANCE_API_SECRET")
+            api_key = os.getenv("BYBIT_API_KEY")
+            api_secret = os.getenv("BYBIT_API_SECRET")
             if api_key and api_secret:
                 config["apiKey"] = api_key
                 config["secret"] = api_secret
 
-            self._exchange = ccxt.binance(config)
+            self._exchange = ccxt.bybit(config)
         return self._exchange
 
     async def _close_exchange(self) -> None:
@@ -80,7 +80,7 @@ class UniverseManager:
             self._exchange = None
 
     async def initialize(self) -> List[str]:
-        """Fetch initial universe from Binance REST API.
+        """Fetch initial universe from Bybit REST API.
 
         Returns:
             List of active symbol strings (e.g. ["BTCUSDT", "ETHUSDT", ...]).
@@ -102,7 +102,7 @@ class UniverseManager:
                     "Universe initialization failed and no previous list available"
                 )
                 raise RuntimeError(
-                    "Failed to initialize universe: Binance API unavailable"
+                    "Failed to initialize universe: Bybit API unavailable"
                 )
             # Otherwise retain previous (shouldn't happen on first init)
             logger.warning(
@@ -167,16 +167,15 @@ class UniverseManager:
         try:
             exchange = await self._get_exchange()
 
-            # Fetch all tickers from Binance
+            # Fetch all tickers from Bybit
             tickers = await exchange.fetch_tickers()
 
-            # Filter to USDT pairs only
-            usdt_tickers = {
-                symbol: ticker
-                for symbol, ticker in tickers.items()
-                if symbol.endswith("/USDT")
-                and ticker.get("quoteVolume") is not None
-            }
+            # Filter to USDT pairs only (Bybit uses formats like BTC/USDT:USDT for linear)
+            usdt_tickers = {}
+            for symbol, ticker in tickers.items():
+                # Accept both spot (BTC/USDT) and linear (BTC/USDT:USDT) formats
+                if ("/USDT" in symbol) and ticker.get("quoteVolume") is not None:
+                    usdt_tickers[symbol] = ticker
 
             # Sort by 24h quote volume (USD) descending, take top 100
             sorted_pairs = sorted(
@@ -193,8 +192,9 @@ class UniverseManager:
                 volume_usd = float(ticker.get("quoteVolume", 0) or 0)
                 price = float(ticker.get("last", 0) or 0)
 
-                # Convert ccxt symbol format (BTC/USDT) to exchange format (BTCUSDT)
-                exchange_symbol = symbol.replace("/", "")
+                # Convert ccxt symbol format to exchange format (BTCUSDT)
+                # Handle both "BTC/USDT" and "BTC/USDT:USDT" formats
+                exchange_symbol = symbol.split(":")[0].replace("/", "")
 
                 # Always include BTCUSDT regardless of filters
                 if exchange_symbol == self.ALWAYS_INCLUDE_SYMBOL:
@@ -215,6 +215,10 @@ class UniverseManager:
 
                 # Apply price filter
                 if price < self.min_price:
+                    continue
+
+                # Avoid duplicates (same symbol from spot and linear)
+                if exchange_symbol in filtered_symbols:
                     continue
 
                 filtered_symbols.append(exchange_symbol)
@@ -243,7 +247,7 @@ class UniverseManager:
             return filtered_symbols
 
         except Exception as e:
-            logger.error(f"Failed to fetch universe from Binance API: {e}")
+            logger.error(f"Failed to fetch universe from Bybit API: {e}")
             return None
 
     def get_pairs(self) -> List[UniversePair]:

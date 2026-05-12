@@ -1213,7 +1213,7 @@ class MomentumScanner:
     # ─── Failover & Error Handling ────────────────────────────────────────────
 
     # Exchange priority order for failover (primary → secondary → tertiary)
-    _EXCHANGE_PRIORITY = ["binance", "bybit", "okx"]
+    _EXCHANGE_PRIORITY = ["bybit", "binance", "okx"]
 
     # Maximum time allowed for failover promotion (seconds)
     _FAILOVER_TIMEOUT_SECONDS = 10.0

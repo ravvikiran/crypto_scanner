@@ -78,8 +78,8 @@ class TestLogStartupSummary:
         with caplog.at_level(logging.INFO, logger="momentum_scanner"):
             log_startup_summary(config, symbols)
 
-        # Default config has binance enabled
-        assert "binance" in caplog.text
+        # Default config has bybit enabled
+        assert "bybit" in caplog.text
 
 
 class TestSetupLogging:
