@@ -3,8 +3,6 @@ builder = "nixpacks"
 
 [deploy]
 startCommand = "python main_momentum.py"
-healthcheckPath = "/"
-healthcheckTimeout = 10
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 5
 numReplicas = 1
