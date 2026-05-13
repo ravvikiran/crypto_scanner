@@ -64,29 +64,22 @@ class UniverseManager:
 
         Returns:
             List of active symbol strings (e.g. ["BTCUSDT", "ETHUSDT", ...]).
-
-        Raises:
-            RuntimeError: If the initial fetch fails and there is no previous list.
+            Returns empty list if API is unavailable (caller should use fallback).
         """
         symbols = await self._fetch_and_filter()
-        if symbols is not None:
+        if symbols is not None and len(symbols) > 0:
             self._active_symbols = symbols
             self._initialized = True
             logger.info(
                 f"Universe initialized with {len(self._active_symbols)} symbols"
             )
         else:
-            if not self._active_symbols:
-                logger.error(
-                    "Universe initialization failed and no previous list available"
-                )
-                raise RuntimeError(
-                    "Failed to initialize universe: Bybit API unavailable"
-                )
             logger.warning(
-                "Universe initialization failed, retaining previous list "
-                f"({len(self._active_symbols)} symbols)"
+                "Universe initialization failed (API unavailable or empty response). "
+                "Caller should use fallback symbol list."
             )
+            # Don't raise — let the caller use its fallback list
+            return []
 
         return list(self._active_symbols)
 

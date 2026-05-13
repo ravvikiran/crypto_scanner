@@ -245,6 +245,7 @@ class MomentumScanner:
 
         # Step 2: Initialize universe to get dynamic symbol list (Requirement 2.1)
         try:
+            logger.info("Attempting universe initialization from Bybit API...")
             universe_symbols = await asyncio.wait_for(
                 self._universe_manager.initialize(),
                 timeout=45.0,
@@ -255,6 +256,11 @@ class MomentumScanner:
                 self._ws_manager._symbols = self._symbols
                 logger.info(
                     "Universe initialized with %d symbols", len(self._symbols)
+                )
+            else:
+                logger.warning(
+                    "Universe returned empty list, using configured symbols (%d)",
+                    len(self._symbols),
                 )
         except asyncio.TimeoutError:
             logger.warning(

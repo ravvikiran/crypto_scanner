@@ -178,28 +178,11 @@ momentum_scanner:
     timeframes: ["4h", "1h", "15m"]
     max_coins: 300
 
-  # Symbols to monitor (top coins by market cap)
-  symbols:
-    - "BTCUSDT"
-    - "ETHUSDT"
-    - "BNBUSDT"
-    - "SOLUSDT"
-    - "XRPUSDT"
-    - "ADAUSDT"
-    - "DOGEUSDT"
-    - "AVAXUSDT"
-    - "DOTUSDT"
-    - "LINKUSDT"
-    - "MATICUSDT"
-    - "UNIUSDT"
-    - "ATOMUSDT"
-    - "LTCUSDT"
-    - "NEARUSDT"
-    - "APTUSDT"
-    - "ARBUSDT"
-    - "OPUSDT"
-    - "INJUSDT"
-    - "SUIUSDT"
+  # Symbols to monitor
+  # When universe_manager is active, this is ignored (dynamic fetch from Bybit).
+  # When universe_manager fails, the fallback list in main_momentum.py is used.
+  # Set MOMENTUM_SYMBOLS env var to override with a custom comma-separated list.
+  symbols: []
 
   # Alert cooldown (Requirement 15.2)
   alert_cooldown:
