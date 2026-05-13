@@ -568,6 +568,12 @@ class MomentumScanner:
             if symbol == BTC_SYMBOL and timeframe == "4h":
                 await self._handle_btc_4h(event)
 
+            # Update BTC 1H candles for crash detection
+            if symbol == BTC_SYMBOL and timeframe == "1h":
+                btc_state = self._state_manager.get_state(BTC_SYMBOL)
+                btc_candles_1h = btc_state.candle_buffers.get("1h", [])
+                self._regime_filter.update_btc_candles_1h(btc_candles_1h)
+
             if timeframe == "4h":
                 await self._handle_4h_event(event)
             elif timeframe == "1h":
@@ -628,8 +634,10 @@ class MomentumScanner:
         if not candles_4h:
             return
 
-        # Evaluate trend
-        trend_result = self._trend_filter.evaluate(candles_4h)
+        # Evaluate trend (use COMPRESSION_BREAKOUT to get the 50-candle minimum)
+        trend_result = self._trend_filter.evaluate(
+            candles_4h, setup_type=SetupType.COMPRESSION_BREAKOUT
+        )
 
         # Update state
         self._state_manager.set_trend_status(symbol, trend_result.status)
