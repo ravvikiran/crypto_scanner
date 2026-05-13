@@ -19,7 +19,7 @@ from typing import Dict, List, Optional
 
 from loguru import logger
 
-from streaming.models import MonitoredPosition, OHLCV, SetupSignal, SignalOutcomeType
+from streaming.models import MonitoredPosition, OHLCV, SetupSignal, SignalDirection, SignalOutcomeType
 
 
 class TrailingStopMonitor:
@@ -79,10 +79,12 @@ class TrailingStopMonitor:
             signal_id=signal_id,
             started_at=datetime.now(timezone.utc),
             highest_since_t2=None,
+            lowest_since_t2=None,
             t1_hit=False,
             t2_hit=False,
             t3_hit=False,
             last_data_at=datetime.now(timezone.utc),
+            direction=getattr(signal, 'direction', SignalDirection.LONG),
         )
 
         self._positions[signal.symbol] = position
@@ -122,23 +124,43 @@ class TrailingStopMonitor:
         # Update last data timestamp
         position.last_data_at = now
 
-        # Check if T3 reached → exit as win (Requirement 8.5)
-        if close_price >= position.target_3:
-            await self._exit_position(
-                position,
-                exit_price=close_price,
-                reason="T3 reached",
-            )
-            return
+        # Direction-aware target and stop checks
+        if position.direction == SignalDirection.SHORT:
+            # SHORT: T3 hit when close <= target_3 (price going down)
+            if close_price <= position.target_3:
+                await self._exit_position(
+                    position,
+                    exit_price=close_price,
+                    reason="T3 reached",
+                )
+                return
 
-        # Check if trailing stop hit (Requirement 6.6)
-        if close_price < position.current_stop:
-            await self._exit_position(
-                position,
-                exit_price=close_price,
-                reason="trailing stop hit",
-            )
-            return
+            # SHORT: Stop hit when close > current_stop (price going up)
+            if close_price > position.current_stop:
+                await self._exit_position(
+                    position,
+                    exit_price=close_price,
+                    reason="trailing stop hit",
+                )
+                return
+        else:
+            # LONG: T3 hit when close >= target_3
+            if close_price >= position.target_3:
+                await self._exit_position(
+                    position,
+                    exit_price=close_price,
+                    reason="T3 reached",
+                )
+                return
+
+            # LONG: Stop hit when close < current_stop
+            if close_price < position.current_stop:
+                await self._exit_position(
+                    position,
+                    exit_price=close_price,
+                    reason="trailing stop hit",
+                )
+                return
 
         # Update trailing stop levels
         await self._update_trailing_stop(position, close_price)
@@ -178,60 +200,112 @@ class TrailingStopMonitor:
         """
         Update trailing stop based on price progression.
 
-        Logic:
+        Logic for LONG:
         - If price >= T1 and T1 not yet hit: move stop to entry (breakeven)
         - If price >= T2 and T2 not yet hit: mark T2 hit, start tracking highest
         - If T2 hit: trail at 1% below highest close since T2
 
-        The trailing stop never decreases.
+        Logic for SHORT:
+        - If price <= T1 and T1 not yet hit: move stop to entry (breakeven)
+        - If price <= T2 and T2 not yet hit: mark T2 hit, start tracking lowest
+        - If T2 hit: trail at 1% above lowest close since T2
+
+        The trailing stop never moves against the position.
 
         Requirements: 6.2, 6.3, 6.4, 6.5
         """
         old_stop = position.current_stop
 
-        # Check T1 hit → move to breakeven (Requirement 6.2)
-        if not position.t1_hit and close_price >= position.target_1:
-            position.t1_hit = True
-            new_stop = position.entry_price
-            if new_stop > position.current_stop:
-                position.current_stop = new_stop
-                logger.info(
-                    f"{position.symbol}: T1 hit at {close_price:.6f}, "
-                    f"stop moved to breakeven ({position.entry_price:.6f})"
-                )
+        if position.direction == SignalDirection.SHORT:
+            # SHORT direction trailing logic
+            # Check T1 hit → move to breakeven (stop moves DOWN to entry)
+            if not position.t1_hit and close_price <= position.target_1:
+                position.t1_hit = True
+                new_stop = position.entry_price
+                if new_stop < position.current_stop:
+                    position.current_stop = new_stop
+                    logger.info(
+                        f"{position.symbol}: T1 hit at {close_price:.6f}, "
+                        f"stop moved to breakeven ({position.entry_price:.6f})"
+                    )
 
-        # Check T2 hit → begin trailing (Requirement 6.3)
-        if not position.t2_hit and close_price >= position.target_2:
-            position.t2_hit = True
-            position.highest_since_t2 = close_price
-            # Calculate initial trailing stop: 1% below current close
-            new_stop = close_price * 0.99
-            if new_stop > position.current_stop:
-                position.current_stop = new_stop
-                logger.info(
-                    f"{position.symbol}: T2 hit at {close_price:.6f}, "
-                    f"trailing stop set to {new_stop:.6f}"
-                )
+            # Check T2 hit → begin trailing
+            if not position.t2_hit and close_price <= position.target_2:
+                position.t2_hit = True
+                position.lowest_since_t2 = close_price
+                # Calculate initial trailing stop: 1% above current close
+                new_stop = close_price * 1.01
+                if new_stop < position.current_stop:
+                    position.current_stop = new_stop
+                    logger.info(
+                        f"{position.symbol}: T2 hit at {close_price:.6f}, "
+                        f"trailing stop set to {new_stop:.6f}"
+                    )
 
-        # If T2 already hit, update trailing stop (Requirement 6.4)
-        if position.t2_hit:
-            # Update highest close since T2
-            if (
-                position.highest_since_t2 is None
-                or close_price > position.highest_since_t2
-            ):
+            # If T2 already hit, update trailing stop
+            if position.t2_hit:
+                # Update lowest close since T2
+                if (
+                    position.lowest_since_t2 is None
+                    or close_price < position.lowest_since_t2
+                ):
+                    position.lowest_since_t2 = close_price
+
+                # Trail at 1% above lowest close since T2
+                new_stop = position.lowest_since_t2 * 1.01
+
+                # Trailing stop never increases for shorts (moves down only)
+                if new_stop < position.current_stop:
+                    position.current_stop = new_stop
+                    logger.debug(
+                        f"{position.symbol}: trailing stop updated to "
+                        f"{new_stop:.6f} (lowest={position.lowest_since_t2:.6f})"
+                    )
+        else:
+            # LONG direction trailing logic (existing)
+            # Check T1 hit → move to breakeven (Requirement 6.2)
+            if not position.t1_hit and close_price >= position.target_1:
+                position.t1_hit = True
+                new_stop = position.entry_price
+                if new_stop > position.current_stop:
+                    position.current_stop = new_stop
+                    logger.info(
+                        f"{position.symbol}: T1 hit at {close_price:.6f}, "
+                        f"stop moved to breakeven ({position.entry_price:.6f})"
+                    )
+
+            # Check T2 hit → begin trailing (Requirement 6.3)
+            if not position.t2_hit and close_price >= position.target_2:
+                position.t2_hit = True
                 position.highest_since_t2 = close_price
+                # Calculate initial trailing stop: 1% below current close
+                new_stop = close_price * 0.99
+                if new_stop > position.current_stop:
+                    position.current_stop = new_stop
+                    logger.info(
+                        f"{position.symbol}: T2 hit at {close_price:.6f}, "
+                        f"trailing stop set to {new_stop:.6f}"
+                    )
 
-            # Trail at 1% below highest close since T2
-            new_stop = position.highest_since_t2 * 0.99
+            # If T2 already hit, update trailing stop (Requirement 6.4)
+            if position.t2_hit:
+                # Update highest close since T2
+                if (
+                    position.highest_since_t2 is None
+                    or close_price > position.highest_since_t2
+                ):
+                    position.highest_since_t2 = close_price
 
-            # Trailing stop never decreases (Requirement 6.4)
-            if new_stop > position.current_stop:
-                position.current_stop = new_stop
-                logger.debug(
-                    f"{position.symbol}: trailing stop updated to "
-                    f"{new_stop:.6f} (highest={position.highest_since_t2:.6f})"
-                )
+                # Trail at 1% below highest close since T2
+                new_stop = position.highest_since_t2 * 0.99
+
+                # Trailing stop never decreases (Requirement 6.4)
+                if new_stop > position.current_stop:
+                    position.current_stop = new_stop
+                    logger.debug(
+                        f"{position.symbol}: trailing stop updated to "
+                        f"{new_stop:.6f} (highest={position.highest_since_t2:.6f})"
+                    )
 
         # Send Telegram notification if stop level changed (Requirement 6.5)
         if position.current_stop != old_stop:
@@ -248,12 +322,21 @@ class TrailingStopMonitor:
 
         Requirements: 6.6, 6.7, 8.5
         """
-        # Calculate actual RR: (exit - entry) / (entry - original_stop)
-        risk = position.entry_price - position.stop_loss
-        if risk > 0:
-            actual_rr = (exit_price - position.entry_price) / risk
+        # Calculate actual RR based on direction
+        if position.direction == SignalDirection.SHORT:
+            # SHORT: risk = stop_loss - entry_price, profit = entry - exit
+            risk = position.stop_loss - position.entry_price
+            if risk > 0:
+                actual_rr = (position.entry_price - exit_price) / risk
+            else:
+                actual_rr = 0.0
         else:
-            actual_rr = 0.0
+            # LONG: risk = entry_price - stop_loss, profit = exit - entry
+            risk = position.entry_price - position.stop_loss
+            if risk > 0:
+                actual_rr = (exit_price - position.entry_price) / risk
+            else:
+                actual_rr = 0.0
 
         # Calculate duration in minutes
         now = datetime.now(timezone.utc)

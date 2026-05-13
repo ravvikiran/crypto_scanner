@@ -15,7 +15,7 @@ from typing import Optional
 import aiohttp
 from loguru import logger
 
-from streaming.models import AlertCacheEntry, OIFundingData, ScoredSetup, SetupType
+from streaming.models import AlertCacheEntry, OIFundingData, ScoredSetup, SetupType, SignalDirection
 
 
 class MomentumAlertManager:
@@ -306,9 +306,14 @@ class MomentumAlertManager:
         symbol = signal.symbol
         setup_type_display = signal.setup_type.value.replace("_", " ").title()
 
-        # Directional emoji - currently only LONG setups supported
-        direction_emoji = "\U0001f7e2"  # 🟢
-        direction_label = "LONG"
+        # Directional emoji based on signal direction
+        signal_direction = getattr(signal, 'direction', SignalDirection.LONG)
+        if signal_direction == SignalDirection.SHORT:
+            direction_emoji = "\U0001f4c9"  # 📉
+            direction_label = "SHORT"
+        else:
+            direction_emoji = "\U0001f4c8"  # 📈
+            direction_label = "LONG"
 
         # Extract risk levels with N/A fallback
         entry = risk_levels.get("entry")

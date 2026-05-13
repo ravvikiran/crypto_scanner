@@ -7,6 +7,27 @@
       "stage": "Trend_Filter",
       "indicator_values": {},
       "timestamp": "2026-05-13T08:21:05.232547"
+    },
+    {
+      "symbol": "OKCOIN",
+      "reason": "Insufficient data: 0 candles (minimum 50 required)",
+      "stage": "Trend_Filter",
+      "indicator_values": {},
+      "timestamp": "2026-05-13T08:34:02.653884"
+    },
+    {
+      "symbol": "OKCOIN",
+      "reason": "Insufficient data: 0 candles (minimum 50 required)",
+      "stage": "Trend_Filter",
+      "indicator_values": {},
+      "timestamp": "2026-05-13T08:34:38.111160"
+    },
+    {
+      "symbol": "OKCOIN",
+      "reason": "Insufficient data: 0 candles (minimum 50 required)",
+      "stage": "Trend_Filter",
+      "indicator_values": {},
+      "timestamp": "2026-05-13T08:35:27.975807"
     }
   ]
 }

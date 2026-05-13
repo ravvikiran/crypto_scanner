@@ -58,6 +58,13 @@ class CoinData:
 # ─── Enums ───────────────────────────────────────────────────────────────────
 
 
+class SignalDirection(Enum):
+    """Direction of a trading signal."""
+
+    LONG = "long"
+    SHORT = "short"
+
+
 class TrendStatus(Enum):
     """Status of a coin's 4H trend assessment."""
 
@@ -163,6 +170,11 @@ class ActiveSetup:
     compression_zone: Optional[CompressionZone] = None
     detected_at: datetime = field(default_factory=datetime.utcnow)
     confirmed_at: Optional[datetime] = None
+    direction: "SignalDirection" = None  # type: ignore[assignment]
+
+    def __post_init__(self):
+        if self.direction is None:
+            self.direction = SignalDirection.LONG
 
 
 @dataclass
@@ -196,6 +208,11 @@ class SetupSignal:
     pending_confirmation: bool = True
     confirmation_deadline: int = 4  # 15m candles
     detected_at: datetime = field(default_factory=datetime.utcnow)
+    direction: "SignalDirection" = None  # type: ignore[assignment]
+
+    def __post_init__(self):
+        if self.direction is None:
+            self.direction = SignalDirection.LONG
 
 
 # ─── Scoring Dataclasses ─────────────────────────────────────────────────────
@@ -338,10 +355,16 @@ class MonitoredPosition:
     signal_id: str
     started_at: datetime
     highest_since_t2: Optional[float] = None
+    lowest_since_t2: Optional[float] = None
     t1_hit: bool = False
     t2_hit: bool = False
     t3_hit: bool = False
     last_data_at: Optional[datetime] = None
+    direction: "SignalDirection" = None  # type: ignore[assignment]
+
+    def __post_init__(self):
+        if self.direction is None:
+            self.direction = SignalDirection.LONG
 
 
 # ─── Universe Management Dataclasses ─────────────────────────────────────────

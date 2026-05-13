@@ -391,7 +391,7 @@ class TestTelegramMessageFormatting:
             self._make_oi_data(),
             trend_score=75.0,
         )
-        assert "\U0001f7e2 LONG SIGNAL" in msg
+        assert "\U0001f4c8 LONG SIGNAL" in msg
         assert "ETHUSDT" in msg
         assert "Compression Breakout" in msg
 

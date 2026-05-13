@@ -34,6 +34,7 @@ from streaming.models import (
     SetupSignal,
     SetupState,
     SetupType,
+    SignalDirection,
     TrendStatus,
 )
 from streaming.websocket_manager import WebSocketManager
@@ -45,6 +46,7 @@ from detectors.setup_detector import (
     detect_compression_breakout,
     detect_pullback_continuation,
     detect_momentum_breakout,
+    detect_momentum_breakdown,
     check_15m_trigger,
 )
 from monitors.trailing_stop_monitor import TrailingStopMonitor
@@ -668,15 +670,10 @@ class MomentumScanner:
         """
         symbol = event.symbol
 
-        # Gate 1: Market regime must allow longs
-        if not self._regime_filter.should_allow_longs():
-            self._journal.log_rejection(
-                symbol=symbol,
-                reason="Market regime not bullish",
-                stage="Market_Regime_Filter",
-                indicator_values={},
-            )
-            return
+        # Gate 1: Market regime check
+        # For LONG setups, regime must allow longs
+        # For SHORT setups, we proceed even when regime is NOT bullish
+        regime_allows_longs = self._regime_filter.should_allow_longs()
 
         # Gate 2: Volatility gate — ATR14/price ratio must be within bounds
         state = self._state_manager.get_state(symbol)
@@ -722,28 +719,48 @@ class MomentumScanner:
 
         setup = None
 
-        # Gate 3: For compression/pullback, coin trend must be bullish (4H-based)
-        if state.trend_status == TrendStatus.BULLISH:
-            # Try compression breakout detection
-            setup = detect_compression_breakout(candles_1h)
-            if setup is None:
-                # Try pullback continuation detection
-                setup = detect_pullback_continuation(candles_1h)
+        # --- LONG detection (only when regime allows longs) ---
+        if regime_allows_longs:
+            # Gate 3: For compression/pullback, coin trend must be bullish (4H-based)
+            if state.trend_status == TrendStatus.BULLISH:
+                # Try compression breakout detection
+                setup = detect_compression_breakout(candles_1h)
+                if setup is None:
+                    # Try pullback continuation detection
+                    setup = detect_pullback_continuation(candles_1h)
 
-        # Try momentum breakout detection (uses 1H trend filter, Requirement 4.1)
+            # Try momentum breakout detection (uses 1H trend filter, Requirement 4.1)
+            if setup is None:
+                setup = detect_momentum_breakout(candles_1h)
+                if setup is not None:
+                    # Validate trend for momentum breakout using 1H-based evaluation
+                    trend_result = self._trend_filter.evaluate(
+                        coin_candles_4h=state.candle_buffers.get("4h", []),
+                        setup_type=SetupType.MOMENTUM_BREAKOUT,
+                        candles_1h=candles_1h,
+                    )
+                    if not trend_result.passed:
+                        self._journal.log_rejection(
+                            symbol=symbol,
+                            reason=trend_result.rejection_reason or "Momentum trend not bullish",
+                            stage="Trend_Filter",
+                            indicator_values={},
+                        )
+                        setup = None
+
+        # --- SHORT detection (momentum breakdown) ---
+        # Shorts are allowed even when market regime is NOT bullish
+        # (shorts are good when market is crashing)
         if setup is None:
-            setup = detect_momentum_breakout(candles_1h)
+            setup = detect_momentum_breakdown(candles_1h)
             if setup is not None:
-                # Validate trend for momentum breakout using 1H-based evaluation
-                trend_result = self._trend_filter.evaluate(
-                    coin_candles_4h=state.candle_buffers.get("4h", []),
-                    setup_type=SetupType.MOMENTUM_BREAKOUT,
-                    candles_1h=candles_1h,
-                )
-                if not trend_result.passed:
+                # For shorts, trend should NOT be bullish (we want bearish)
+                trend_result = self._trend_filter.evaluate_for_momentum(candles_1h)
+                if trend_result.passed:
+                    # Trend is bullish = bad for shorts, reject
                     self._journal.log_rejection(
                         symbol=symbol,
-                        reason=trend_result.rejection_reason or "Momentum trend not bullish",
+                        reason="Trend is bullish, rejecting SHORT setup",
                         stage="Trend_Filter",
                         indicator_values={},
                     )
@@ -828,6 +845,15 @@ class MomentumScanner:
             state.trend_status != TrendStatus.BULLISH
             or not self._regime_filter.should_allow_longs()
         )
+
+        # For SHORT setups, invalidation logic is inverted:
+        # A SHORT is invalidated if trend becomes bullish (not bearish)
+        if state.active_setup and state.active_setup.direction == SignalDirection.SHORT:
+            # SHORT invalidated if trend is bullish (good for longs, bad for shorts)
+            trend_result = self._trend_filter.evaluate_for_momentum(
+                state.candle_buffers.get("1h", [])
+            )
+            setup_invalidated = trend_result.passed  # bullish = bad for shorts
 
         # Check 15m trigger
         confirmed_setup = check_15m_trigger(
@@ -1013,9 +1039,11 @@ class MomentumScanner:
             stop_loss=setup.stop_loss,
             target_1=setup.target_1,
             target_2=setup.target_2,
+            target_3=setup.target_3,
             risk_reward=setup.risk_reward,
             timeframe=setup.timeframe,
             trigger_timeframe=setup.trigger_timeframe,
+            direction=setup.direction,
         )
 
         # Build labels

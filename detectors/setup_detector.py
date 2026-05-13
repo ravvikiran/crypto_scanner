@@ -24,6 +24,7 @@ from streaming.models import (
     SetupSignal,
     SetupState,
     SetupType,
+    SignalDirection,
 )
 
 
@@ -628,6 +629,129 @@ def detect_momentum_breakout(
         trigger_timeframe="15m",
         compression_zone=None,
         detected_at=datetime.utcnow(),
+    )
+
+
+def detect_momentum_breakdown(
+    candles_1h: List[OHLCV],
+) -> Optional[ActiveSetup]:
+    """
+    Detect a Momentum Breakdown setup on the 1H timeframe (SHORT signal).
+
+    This function identifies strong downward directional moves. It mirrors
+    detect_momentum_breakout but for short setups: price below EMA20,
+    consecutive lower lows, and volume surge confirmation.
+
+    Detection logic:
+    1. Close < EMA20 on the 1H timeframe.
+    2. Last 3 consecutive 1H candles each have a lower low than the
+       previous candle.
+    3. Current 1H candle volume > 2.5× the 20-period volume MA.
+
+    Stop-loss calculation (above entry for shorts):
+    - Raw stop = lower (tighter for short) of: swing_high_3 × 1.005, or entry + 1.5 × ATR14
+    - Clamp stop distance to [0.8%, 2.5%] of entry price.
+
+    Parameters
+    ----------
+    candles_1h : List[OHLCV]
+        The 1H candle history. Needs at least 20 candles for EMA20
+        calculation and volume MA20.
+
+    Returns
+    -------
+    Optional[ActiveSetup]
+        An ActiveSetup with direction=SHORT if a valid momentum breakdown
+        is detected, otherwise None.
+    """
+    # Need enough candles for EMA20, volume MA20, and ATR14
+    if len(candles_1h) < 20:
+        return None
+
+    # --- Condition 1: Close < EMA20 (1H) ---
+    closes = pd.Series([c.close for c in candles_1h])
+    ema20_series = _calculate_ema(closes, span=20)
+    ema20 = float(ema20_series.iloc[-1])
+
+    latest_candle = candles_1h[-1]
+    if latest_candle.close >= ema20:
+        return None
+
+    # --- Condition 2: Last 3 candles have lower lows ---
+    if len(candles_1h) < 4:
+        return None
+
+    for i in range(-3, 0):
+        if candles_1h[i].low >= candles_1h[i - 1].low:
+            return None
+
+    # --- Condition 3: Volume > 2.5× 20-period volume MA ---
+    volume_ma20 = _calculate_volume_ma20(candles_1h)
+    if volume_ma20 is None or volume_ma20 <= 0:
+        return None
+
+    if latest_candle.volume <= 2.5 * volume_ma20:
+        return None
+
+    # --- All conditions met: Calculate entry and stop-loss ---
+
+    # Entry price: current 1H candle close
+    entry_price = latest_candle.close
+
+    # Calculate ATR14
+    atr14 = _calculate_atr14(candles_1h)
+    if atr14 is None or atr14 <= 0:
+        return None
+
+    # Swing high of last 3 candles
+    swing_high_3 = max(c.high for c in candles_1h[-3:])
+
+    # Raw stop-loss: lower (tighter for short) of the two options
+    # For shorts, stop is ABOVE entry
+    stop_option_1 = swing_high_3 * 1.005  # swing_high_3 × 1.005
+    stop_option_2 = entry_price + 1.5 * atr14  # entry + 1.5 × ATR14
+    raw_stop = min(stop_option_1, stop_option_2)  # tighter = lower value (closer to entry)
+
+    # --- Clamp stop-loss distance to [0.8%, 2.5%] range ---
+    min_stop_distance = entry_price * 0.008  # 0.8% of entry
+    max_stop_distance = entry_price * 0.025  # 2.5% of entry
+
+    raw_distance = raw_stop - entry_price  # positive for shorts (stop above entry)
+
+    # Clamp the distance
+    clamped_distance = max(min_stop_distance, min(raw_distance, max_stop_distance))
+
+    # Final stop-loss (above entry for shorts)
+    stop_loss = entry_price + clamped_distance
+
+    # Calculate risk and targets (for shorts, risk = stop - entry)
+    risk = stop_loss - entry_price
+    if risk <= 0:
+        return None
+
+    # Targets go DOWN for shorts
+    target_1 = entry_price - risk        # 1R down
+    target_2 = entry_price - 2 * risk    # 2R down
+    target_3 = entry_price - 5 * risk    # 5R down
+
+    # Risk-reward ratio (using T2)
+    risk_reward = (entry_price - target_2) / risk  # Should be 2.0
+
+    return ActiveSetup(
+        symbol="",  # To be filled by caller
+        setup_type=SetupType.MOMENTUM_BREAKOUT,
+        state=SetupState.DETECTED,
+        entry_price=entry_price,
+        stop_loss=stop_loss,
+        target_1=target_1,
+        target_2=target_2,
+        target_3=target_3,
+        risk_reward=risk_reward,
+        timeframe="1h",
+        trigger_timeframe="15m",
+        compression_zone=None,
+        detected_at=datetime.utcnow(),
+        direction=SignalDirection.SHORT,
     )
 
 
