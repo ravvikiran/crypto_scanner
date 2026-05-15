@@ -104,6 +104,7 @@ class JournalStore:
             "signal_id": signal_id,
             "symbol": entry.symbol,
             "setup_type": entry.setup_type.value if hasattr(entry.setup_type, "value") else str(entry.setup_type),
+            "direction": entry.direction.value if entry.direction and hasattr(entry.direction, "value") else "long",
             "entry_price": entry.entry_price,
             "stop_loss": entry.stop_loss,
             "composite_score": entry.composite_score,
@@ -235,6 +236,7 @@ class JournalStore:
         target_1: float,
         signal_timestamp: datetime,
         current_price: float,
+        direction: str = "long",
     ) -> Optional[SignalOutcomeType]:
         """
         Determine if a signal has hit stop-loss, target1, or expired.
@@ -244,25 +246,33 @@ class JournalStore:
         - LOSS: price hits stop-loss
         - EXPIRY: neither level reached within 7 days
 
+        Supports both LONG and SHORT directions.
+
         Args:
             entry_price: The signal's entry price.
             stop_loss: The signal's stop-loss level.
             target_1: The signal's Target1 level (entry + 1R).
             signal_timestamp: When the signal was generated.
             current_price: The current market price.
+            direction: "long" or "short" (default "long").
 
         Returns:
             SignalOutcomeType if outcome is determined, None if still active.
 
         Requirements: 17.3
         """
-        # Check for loss (price hit stop-loss)
-        if current_price <= stop_loss:
-            return SignalOutcomeType.LOSS
-
-        # Check for win (price reached Target1)
-        if current_price >= target_1:
-            return SignalOutcomeType.WIN
+        if direction == "short":
+            # SHORT: loss when price goes above stop, win when price goes below target
+            if current_price >= stop_loss:
+                return SignalOutcomeType.LOSS
+            if current_price <= target_1:
+                return SignalOutcomeType.WIN
+        else:
+            # LONG: loss when price goes below stop, win when price goes above target
+            if current_price <= stop_loss:
+                return SignalOutcomeType.LOSS
+            if current_price >= target_1:
+                return SignalOutcomeType.WIN
 
         # Check for expiry (7 days elapsed)
         elapsed = datetime.utcnow() - signal_timestamp

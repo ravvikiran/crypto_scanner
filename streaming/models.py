@@ -320,6 +320,7 @@ class JournalEntry:
     atr14: float = 0.0
     btc_regime: str = "unknown"
     target_3: Optional[float] = None
+    direction: "SignalDirection" = None  # type: ignore[assignment]
     outcome: Optional[SignalOutcomeType] = None
     actual_rr: Optional[float] = None
     duration_minutes: Optional[float] = None

@@ -442,6 +442,22 @@ def detect_pullback_continuation(
     if trigger_candle.volume <= 1.5 * volume_ma30:
         return None
 
+    # --- RSI Confluence Check ---
+    # Reject deeply oversold RSI (<20) which indicates the trend is likely broken
+    # beyond a simple pullback. We don't reject high RSI because a strong trend
+    # can maintain elevated RSI while still producing valid EMA pullbacks.
+    if len(candles_1h) >= 15:
+        delta = closes.diff()
+        gain = delta.where(delta > 0, 0.0).rolling(window=14).mean()
+        loss = (-delta.where(delta < 0, 0.0)).rolling(window=14).mean()
+        rs = gain / loss
+        rsi_series = 100 - (100 / (1 + rs))
+        current_rsi = float(rsi_series.iloc[-1]) if not pd.isna(rsi_series.iloc[-1]) else 50.0
+
+        # Reject if RSI is deeply oversold — trend is likely broken
+        if current_rsi < 20:
+            return None
+
     # --- Requirement 7.6: Specific invalidation for the relevant EMA ---
     # If price closes below the relevant EMA by > 1.0%, invalidate
     relevant_ema_invalidation = relevant_ema * (1 - 0.01)

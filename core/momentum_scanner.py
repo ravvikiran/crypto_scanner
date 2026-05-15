@@ -146,6 +146,7 @@ class MomentumScanner:
         self._alert_manager = MomentumAlertManager(
             cooldown_hours=self._config.alert_cooldown_hours,
             max_entries=500,
+            max_daily_signals=int(os.environ.get("MAX_DAILY_SIGNALS", "5")),
         )
         self._journal = JournalStore()
 
@@ -1078,6 +1079,7 @@ class MomentumScanner:
         Attempt to emit an alert for a scored setup.
 
         Checks deduplication/cooldown via the alert manager before sending.
+        If allowed, sends a formatted Telegram message and logs to journal.
 
         Args:
             scored_setup: The scored setup to potentially alert on.
@@ -1118,6 +1120,9 @@ class MomentumScanner:
                 btc_regime=self._regime_filter.last_result.status,
             )
             self._journal.log_signal(journal_entry)
+
+            # Send Telegram alert
+            await self._send_telegram_alert(scored_setup, trend_score)
 
             logger.info(
                 "Alert emitted: %s %s | score=%.2f",
@@ -1206,12 +1211,83 @@ class MomentumScanner:
                 )
                 self._journal.log_signal(journal_entry)
 
+                # Send Telegram alert
+                await self._send_telegram_alert(scored_setup, trend_score)
+
                 logger.info(
                     "Alert emitted (ranked): %s %s | score=%.2f | rank in top-5",
                     symbol,
                     setup_type.value,
                     current_score,
                 )
+
+    # ─── Telegram Alert Delivery ─────────────────────────────────────────────
+
+    async def _send_telegram_alert(
+        self, scored_setup: ScoredSetup, trend_score: float
+    ) -> None:
+        """
+        Format and send a Telegram alert for a scored setup.
+
+        Uses the AlertManager's message formatting and retry-based delivery.
+        Silently skips if Telegram credentials are not configured.
+
+        Args:
+            scored_setup: The scored setup to send an alert for.
+            trend_score: The trend quality score component (0-100).
+        """
+        import os
+
+        bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+        chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
+
+        if not bot_token or not chat_id:
+            logger.debug("Telegram not configured, skipping alert delivery")
+            return
+
+        # Build risk levels dict for message formatting
+        signal = scored_setup.signal
+        risk = signal.entry_price - signal.stop_loss if signal.direction == SignalDirection.LONG else signal.stop_loss - signal.entry_price
+        risk_pct = (abs(risk) / signal.entry_price) * 100.0 if signal.entry_price > 0 else 0.0
+
+        risk_levels = {
+            "entry": signal.entry_price,
+            "stop_loss": signal.stop_loss,
+            "risk_pct": risk_pct,
+            "target_1": signal.target_1,
+            "target_2": signal.target_2,
+        }
+
+        # OI data (currently unavailable in the pipeline)
+        oi_data = OIFundingData(data_available=False)
+
+        # Format the message
+        message = self._alert_manager._format_telegram_message(
+            scored_setup=scored_setup,
+            risk_levels=risk_levels,
+            oi_data=oi_data,
+            trend_score=trend_score,
+        )
+
+        # Send via retry logic
+        success = await self._alert_manager._send_with_retry(
+            message=message,
+            chat_id=chat_id,
+            bot_token=bot_token,
+        )
+
+        if success:
+            logger.info(
+                "Telegram alert sent for %s %s",
+                signal.symbol,
+                signal.setup_type.value,
+            )
+        else:
+            logger.error(
+                "Failed to send Telegram alert for %s %s after retries",
+                signal.symbol,
+                signal.setup_type.value,
+            )
 
     # ─── Helpers ──────────────────────────────────────────────────────────────
 

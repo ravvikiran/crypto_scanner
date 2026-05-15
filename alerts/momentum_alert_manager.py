@@ -24,7 +24,7 @@ class MomentumAlertManager:
 
     Maintains a state cache keyed by symbol+setup_type with LRU eviction
     at max capacity. Enforces configurable cooldown with volume and score
-    threshold overrides.
+    threshold overrides. Also enforces a daily signal limit.
     """
 
     # Score threshold for the score-crossing override (Requirement 15.4)
@@ -34,6 +34,7 @@ class MomentumAlertManager:
         self,
         cooldown_hours: float = 4.0,
         max_entries: int = 500,
+        max_daily_signals: int = 5,
     ) -> None:
         """
         Initialize the MomentumAlertManager.
@@ -42,17 +43,23 @@ class MomentumAlertManager:
             cooldown_hours: Hours between duplicate alerts for same symbol+setup_type.
                             Must be between 1.0 and 48.0. Defaults to 4.0.
             max_entries: Maximum cache entries before LRU eviction. Defaults to 500.
+            max_daily_signals: Maximum signals to send per day. Defaults to 5.
         """
         # Clamp cooldown to valid range (Requirement 15.2)
         self._cooldown_hours = max(1.0, min(48.0, cooldown_hours))
         self._max_entries = max_entries
+        self._max_daily_signals = max_daily_signals
 
         # OrderedDict for LRU eviction - most recently accessed at end
         self._cache: OrderedDict[str, AlertCacheEntry] = OrderedDict()
 
+        # Daily signal counter
+        self._daily_signal_count: int = 0
+        self._daily_reset_date: Optional[datetime] = None
+
         logger.info(
             f"MomentumAlertManager initialized: cooldown={self._cooldown_hours}h, "
-            f"max_entries={self._max_entries}"
+            f"max_entries={self._max_entries}, max_daily={self._max_daily_signals}"
         )
 
     @property
@@ -81,8 +88,8 @@ class MomentumAlertManager:
         """
         Determine whether an alert should be sent for the given setup.
 
-        Checks cooldown, volume override, score threshold override, and
-        cache invalidation conditions.
+        Checks daily limit, cooldown, volume override, score threshold override,
+        and cache invalidation conditions.
 
         Args:
             symbol: The coin symbol (e.g., "BTCUSDT").
@@ -95,6 +102,17 @@ class MomentumAlertManager:
         Returns:
             True if the alert should be sent, False otherwise.
         """
+        # Check and reset daily counter if date has changed
+        self._check_daily_reset()
+
+        # Enforce daily signal limit
+        if self._daily_signal_count >= self._max_daily_signals:
+            logger.debug(
+                f"Daily signal limit reached ({self._max_daily_signals}), "
+                f"suppressing alert for {symbol}"
+            )
+            return False
+
         key = self._make_key(symbol, setup_type)
 
         # Cache invalidation: remove entry on stop-loss breach or trend < 40
@@ -148,7 +166,7 @@ class MomentumAlertManager:
         score: float,
     ) -> None:
         """
-        Record that an alert was sent, updating the cache.
+        Record that an alert was sent, updating the cache and daily counter.
 
         Args:
             symbol: The coin symbol.
@@ -170,6 +188,10 @@ class MomentumAlertManager:
         if key in self._cache:
             self._cache.move_to_end(key)
         self._cache[key] = entry
+
+        # Increment daily counter
+        self._check_daily_reset()
+        self._daily_signal_count += 1
 
         # LRU eviction if over capacity (Requirement 15.1 - max 500 entries)
         while len(self._cache) > self._max_entries:
@@ -203,7 +225,16 @@ class MomentumAlertManager:
         Used on corrupt state detection at startup. (Requirement 15.6)
         """
         self._cache.clear()
+        self._daily_signal_count = 0
+        self._daily_reset_date = None
         logger.warning("Alert cache was reset (empty cache initialized)")
+
+    def _check_daily_reset(self) -> None:
+        """Reset the daily signal counter if the date has changed (UTC)."""
+        today = datetime.now(timezone.utc).date()
+        if self._daily_reset_date is None or self._daily_reset_date != today:
+            self._daily_signal_count = 0
+            self._daily_reset_date = today
 
     def get_entry(self, symbol: str, setup_type: SetupType) -> Optional[AlertCacheEntry]:
         """
