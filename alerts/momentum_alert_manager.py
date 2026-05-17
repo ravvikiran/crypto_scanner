@@ -107,9 +107,9 @@ class MomentumAlertManager:
 
         # Enforce daily signal limit
         if self._daily_signal_count >= self._max_daily_signals:
-            logger.debug(
-                f"Daily signal limit reached ({self._max_daily_signals}), "
-                f"suppressing alert for {symbol}"
+            logger.info(
+                f"[ALERT SUPPRESSED] Daily signal limit reached "
+                f"({self._max_daily_signals} per day) — {symbol} {setup_type.value}"
             )
             return False
 
@@ -120,10 +120,18 @@ class MomentumAlertManager:
         if stop_loss_breached or trend_score < 40:
             self._invalidate(key)
             # After invalidation, this is treated as a fresh alert
+            logger.info(
+                f"[CACHE INVALIDATED] Alert cache cleared for {key} "
+                f"(stop_loss_breached={stop_loss_breached}, trend_score={trend_score:.1f})"
+            )
             return True
 
         # If no previous alert exists, allow sending
         if key not in self._cache:
+            logger.info(
+                f"[ALERT ALLOWED] First alert for {key}, "
+                f"score={current_score:.2f}, rvol={current_rvol:.1f}"
+            )
             return True
 
         entry = self._cache[key]
@@ -133,14 +141,18 @@ class MomentumAlertManager:
 
         # If cooldown has expired, allow sending
         if elapsed >= cooldown_delta:
+            logger.info(
+                f"[ALERT ALLOWED] Cooldown expired for {key} "
+                f"(elapsed={elapsed.total_seconds()/3600:.1f}h >= {self._cooldown_hours}h)"
+            )
             return True
 
         # Volume override: send if current RVOL exceeds previous by 50+ pp
         # (Requirement 15.3)
         rvol_diff = current_rvol - entry.volume_ratio_at_send
         if rvol_diff >= 50.0:
-            logger.debug(
-                f"Volume override for {key}: current_rvol={current_rvol:.1f}, "
+            logger.info(
+                f"[VOLUME OVERRIDE] {key}: current_rvol={current_rvol:.1f}, "
                 f"previous={entry.volume_ratio_at_send:.1f}, diff={rvol_diff:.1f}pp"
             )
             return True
@@ -148,14 +160,19 @@ class MomentumAlertManager:
         # Score threshold override: send when score crosses 80.0 threshold
         # (Requirement 15.4)
         if entry.score_at_send < self.SCORE_THRESHOLD <= current_score:
-            logger.debug(
-                f"Score threshold override for {key}: "
-                f"previous_score={entry.score_at_send:.2f}, "
+            logger.info(
+                f"[SCORE OVERRIDE] {key}: previous_score={entry.score_at_send:.2f}, "
                 f"current_score={current_score:.2f}"
             )
             return True
 
         # Still in cooldown, no override conditions met
+        remaining_hours = (entry.sent_at + cooldown_delta - now).total_seconds() / 3600
+        logger.info(
+            f"[ALERT SUPPRESSED] {key} in cooldown "
+            f"({remaining_hours:.1f}h remaining) — "
+            f"score={current_score:.2f}, rvol={current_rvol:.1f}"
+        )
         return False
 
     def mark_sent(

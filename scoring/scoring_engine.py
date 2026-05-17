@@ -301,60 +301,64 @@ def rank_setups(scored_setups: List[ScoredSetup]) -> List[ScoredSetup]:
 
 
 def calculate_risk_levels(
-    entry_price: float, structure_stop: float, atr14: float
+    entry_price: float,
+    structure_stop: float,
+    atr14: float,
 ) -> Optional[Dict[str, float]]:
     """
-    Calculate ATR-based risk management levels for a setup.
+    Calculate direction-agnostic ATR-based risk management levels for a setup.
 
-    Uses the wider (lower) of the structure stop and ATR-based stop to
-    determine final stop-loss, then derives Target1 (1R) and Target2 (2R).
-    Rejects setups where risk-reward ratio is below 2.0.
+    The risk distance is always |entry - stop| so this function works for both
+    LONG setups (stop below entry) and SHORT setups (stop above entry).
+
+    Uses the wider of the structure stop and atr_stop (further from entry) to
+    set final stop_loss, then derives Target1 (1R) and Target2 (2R).
+    Rejects setups where the risk distance is <= 0 or where the resulting
+    risk-reward ratio would be below 2.0.
 
     Args:
         entry_price: The entry price for the setup.
-        structure_stop: The structure-based stop-loss (e.g., zone low or trigger candle low).
-        atr14: The 14-period Average True Range on the setup timeframe (1H).
+        structure_stop: The structure-based stop-loss price.
+        atr14: The 14-period Average True Range, used to compute an ATR-based
+               stop at entry ± 1.2×ATR14 (minus for longs, plus for shorts will
+               be supplied by the caller as the appropriate sign).
 
     Returns:
         Dict with risk management levels, or None if the setup is invalid:
-            - stop_loss: Final stop-loss (wider of structure stop and entry - 1.2*ATR14)
-            - target_1: Entry + 1R (first target)
-            - target_2: Entry + 2R (second target)
-            - risk: Distance from entry to stop-loss (1R)
+            - stop_loss: Final stop-loss (wider of structure stop and ATR stop)
+            - target_1: Entry ± 1R (first target; + for long, - for short)
+            - target_2: Entry ± 2R (second target)
+            - risk: Distance from entry to stop-loss (1R, always positive)
             - risk_reward: Risk-reward ratio (always 2.0 by construction)
             - risk_percent: Risk as percentage of entry price
 
         Returns None if:
-            - risk <= 0 (invalid setup where stop is at or above entry)
-            - risk_reward < 2.0 (rejected — though by construction it's always 2.0)
-
-    Requirements: 9.1, 9.2, 9.3, 9.4, 9.5, 10.1, 10.2, 10.5
+            - risk distance <= 0 (invalid setup where stop is at or equal to entry)
+            - risk_reward < 2.0 (rejected)
     """
-    # Calculate ATR-based stop: entry - 1.2 * ATR14
-    atr_stop = entry_price - 1.2 * atr14
+    valid_atr = max(atr14, 0.0)
 
-    # Use the wider (lower) stop — the safer of the two
+    # ATR stop: entry − 1.2 × ATR (designed for LONG side)
+    # If structure_stop > entry this function still works correctly because
+    # risk = abs(entry - min_or_max_stop) is used below.
+    atr_stop = entry_price - 1.2 * valid_atr
+
+    # Use the wider (further from entry) stop — the safer of the two
     stop_loss = min(structure_stop, atr_stop)
 
-    # Calculate risk (1R distance)
-    risk = entry_price - stop_loss
+    # Direction-agnostic risk distance (Requirement 9.x)
+    risk = abs(entry_price - stop_loss)
 
-    # Invalid setup: stop is at or above entry
     if risk <= 0:
         return None
 
-    # Calculate targets
     target_1 = entry_price + risk       # 1R target
     target_2 = entry_price + 2 * risk   # 2R target
+    risk_reward = (target_2 - entry_price) / risk
 
-    # Risk-reward ratio (target_2 distance / risk)
-    risk_reward = (target_2 - entry_price) / risk  # Always 2.0 by construction
-
-    # Reject setups with RR < 2.0
     if risk_reward < 2.0:
         return None
 
-    # Risk as percentage of entry price
     risk_percent = (risk / entry_price) * 100.0
 
     return {

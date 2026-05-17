@@ -24,6 +24,7 @@ from streaming.models import (
     PendingTrigger,
     SetupState,
     SetupType,
+    SignalDirection,
     TrendStatus,
 )
 
@@ -347,6 +348,7 @@ class StateManager:
             "risk_reward": setup.risk_reward,
             "timeframe": setup.timeframe,
             "trigger_timeframe": setup.trigger_timeframe,
+            "direction": setup.direction.value if setup.direction else None,
             "detected_at": setup.detected_at.isoformat(),
             "confirmed_at": (
                 setup.confirmed_at.isoformat() if setup.confirmed_at else None
@@ -438,6 +440,11 @@ class StateManager:
 
     def _deserialize_active_setup(self, data: dict) -> ActiveSetup:
         """Deserialize an ActiveSetup from a dict."""
+        _dir_raw = data.get("direction")
+        _direction = (
+            SignalDirection(_dir_raw) if _dir_raw else None
+        )
+
         setup = ActiveSetup(
             symbol=data["symbol"],
             setup_type=SetupType(data["setup_type"]),
@@ -447,6 +454,7 @@ class StateManager:
             target_1=float(data["target_1"]),
             target_2=float(data["target_2"]) if data.get("target_2") else None,
             risk_reward=float(data["risk_reward"]),
+            direction=_direction,
             timeframe=data.get("timeframe", "1h"),
             trigger_timeframe=data.get("trigger_timeframe", "15m"),
             detected_at=datetime.fromisoformat(data["detected_at"]),

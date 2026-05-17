@@ -942,6 +942,26 @@ class MomentumScanner:
         btc_candles_4h = btc_state.candle_buffers.get("4h", [])
         coin_candles_4h = state.candle_buffers.get("4h", [])
 
+        # Pre-compute ATR14 from 1H candle buffer (used for risk validation below
+        # and breakout-quality scoring further down).  Must come before the
+        # risk-reward check so we never pass a bogus proxy like entry - stop.
+        import pandas as pd
+
+        atr14_for_risk: float = 0.0
+        if len(candles_1h) >= 15:
+            _df = pd.DataFrame([
+                {"high": c.high, "low": c.low, "close": c.close}
+                for c in candles_1h
+            ])
+            _tr1 = _df["high"] - _df["low"]
+            _tr2 = (_df["high"] - _df["close"].shift()).abs()
+            _tr3 = (_df["low"] - _df["close"].shift()).abs()
+            _tr = pd.concat([_tr1, _tr2, _tr3], axis=1).max(axis=1)
+            _atr_series = _tr.rolling(window=14).mean()
+            _atr_val = float(_atr_series.iloc[-1]) if not pd.isna(_atr_series.iloc[-1]) else 0.0
+            if _atr_val > 0:
+                atr14_for_risk = _atr_val
+
         # Calculate relative strength
         rs_result = self._rs_engine.calculate_for_symbol(
             symbol=symbol,
@@ -1018,11 +1038,12 @@ class MomentumScanner:
         oi_data = OIFundingData(data_available=False)
         adjusted_score = apply_oi_adjustments(composite, oi_data)
 
-        # Validate risk-reward
+        # Validate risk-reward using actual ATR14 from the 1H candle buffer
+        # (not a proxy like entry - stop, which is negative for SHORT setups)
         risk_levels = calculate_risk_levels(
             entry_price=setup.entry_price,
             structure_stop=setup.stop_loss,
-            atr14=setup.entry_price - setup.stop_loss,  # Use existing risk as ATR proxy
+            atr14=atr14_for_risk,
         )
 
         if risk_levels is None:
@@ -1034,6 +1055,7 @@ class MomentumScanner:
                 indicator_values={
                     "entry_price": setup.entry_price,
                     "stop_loss": setup.stop_loss,
+                    "atr14": round(atr14_for_risk, 4),
                 },
             )
             return None
