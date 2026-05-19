@@ -20,6 +20,7 @@ from typing import Dict, List, Optional
 
 from config.websocket_config import WebSocketStreamConfig
 from core.state_manager import StateManager
+from core.history_backfill import backfill_symbols
 from streaming.event_bus import EventBus
 from streaming.models import (
     ActiveSetup,
@@ -275,25 +276,31 @@ class MomentumScanner:
                 str(e),
             )
 
-        # Step 3: Establish WebSocket connections
+        # Step 3: Backfill historical candle data for immediate signal detection
+        # Without this, the scanner needs days to accumulate enough candle data
+        # from WebSocket streams alone (4H needs 200 candles = 33 days).
+        if not restored or self._state_manager.get_all_states() == {}:
+            await self._backfill_history()
+
+        # Step 4: Establish WebSocket connections
         await self._ws_manager.start()
 
-        # Step 3b: Register failure callback for exchange failover
+        # Step 4b: Register failure callback for exchange failover
         self._register_failure_callback()
 
-        # Step 4: Begin event processing loop
+        # Step 5: Begin event processing loop
         self._running = True
         self._event_loop_task = asyncio.create_task(self._event_loop())
 
-        # Step 5: Schedule periodic universe refresh (Requirements 2.6, 2.7)
+        # Step 6: Schedule periodic universe refresh (Requirements 2.6, 2.7)
         self._universe_refresh_task = asyncio.create_task(
             self._universe_refresh_loop()
         )
 
-        # Step 6: Send startup status message (Requirement 7.1)
+        # Step 7: Send startup status message (Requirement 7.1)
         await self._status_reporter.send_startup_message(len(self._symbols))
 
-        # Step 7: Schedule periodic status reporter tasks (Requirements 7.2, 7.3)
+        # Step 8: Schedule periodic status reporter tasks (Requirements 7.2, 7.3)
         self._idle_check_task = asyncio.create_task(
             self._idle_check_loop()
         )
@@ -301,7 +308,7 @@ class MomentumScanner:
             self._daily_summary_loop()
         )
 
-        # Step 8: Start health check server if PORT is set (Requirement 9.5)
+        # Step 9: Start health check server if PORT is set (Requirement 9.5)
         await self._health_server.start()
 
         logger.info("MomentumScanner started successfully")
@@ -1186,10 +1193,10 @@ class MomentumScanner:
 
         Iterates through the ranked top-5 setups and for each one:
         1. Checks alert_manager.should_send() for dedup/cooldown
-        2. If allowed, marks as sent and emits the alert via _try_emit_alert
+        2. If allowed, marks as sent and emits the alert via Telegram
 
-        This ensures only the highest-ranked setups that haven't been
-        recently alerted are sent to the user.
+        After emission, clears the active scored setups list to prevent
+        unbounded growth and stale re-ranking.
 
         Requirements: 2.3, 12.5, 20.1, 20.4
         """
@@ -1242,6 +1249,107 @@ class MomentumScanner:
                     setup_type.value,
                     current_score,
                 )
+
+        # Clear active setups after emission to prevent unbounded growth
+        self._active_scored_setups.clear()
+        self._ranked_top5.clear()
+
+    # ─── Historical Data Backfill ─────────────────────────────────────────────
+
+    async def _backfill_history(self) -> None:
+        """
+        Fetch historical candle data from Bybit REST API to populate buffers.
+
+        Without backfill, the scanner needs days to accumulate enough data
+        from WebSocket streams alone:
+        - 4H: 200 candles = 33 days
+        - 1H: 100 candles = 4 days
+        - 15m: 50 candles = 12.5 hours
+
+        This method fetches historical data on startup so signal detection
+        can begin immediately.
+        """
+        if not self._symbols:
+            logger.warning("No symbols to backfill — skipping history fetch")
+            return
+
+        # Limit backfill to first 50 symbols to avoid rate limiting
+        # (the rest will accumulate data from WebSocket streams)
+        symbols_to_backfill = self._symbols[:50]
+        timeframes = self._config.timeframes  # ["4h", "1h", "15m"]
+
+        logger.info(
+            "Starting historical backfill for %d symbols across %s timeframes...",
+            len(symbols_to_backfill),
+            timeframes,
+        )
+
+        try:
+            backfill_data = await asyncio.wait_for(
+                backfill_symbols(
+                    symbols=symbols_to_backfill,
+                    timeframes=timeframes,
+                    max_concurrent=3,
+                ),
+                timeout=120.0,  # 2 minute timeout for entire backfill
+            )
+        except asyncio.TimeoutError:
+            logger.warning("Historical backfill timed out after 120s, continuing with partial data")
+            return
+        except Exception as e:
+            logger.warning("Historical backfill failed: %s, continuing without history", e)
+            return
+
+        # Populate state manager with backfilled candles
+        symbols_filled = 0
+        for symbol, tf_data in backfill_data.items():
+            for timeframe, candles in tf_data.items():
+                for candle in candles:
+                    self._state_manager.update_candle(symbol, timeframe, candle)
+            symbols_filled += 1
+
+        logger.info(
+            "Historical backfill complete: %d/%d symbols populated with candle data",
+            symbols_filled,
+            len(symbols_to_backfill),
+        )
+
+        # Run initial regime evaluation with backfilled BTC data
+        btc_state = self._state_manager.get_state(BTC_SYMBOL)
+        btc_candles_4h = btc_state.candle_buffers.get("4h", [])
+        btc_candles_1h = btc_state.candle_buffers.get("1h", [])
+
+        if btc_candles_4h:
+            all_states = self._state_manager.get_all_states()
+            universe_coins = self._build_universe_coin_data(all_states)
+            self._regime_filter.evaluate(btc_candles_4h, universe_coins)
+            logger.info(
+                "Initial regime evaluation: %s (alignment: %.0f/100)",
+                self._regime_filter.last_result.status,
+                self._regime_filter.get_alignment_score(),
+            )
+
+        if btc_candles_1h:
+            self._regime_filter.update_btc_candles_1h(btc_candles_1h)
+
+        # Run initial trend evaluation for all backfilled coins
+        trends_evaluated = 0
+        for symbol in backfill_data.keys():
+            if symbol == BTC_SYMBOL:
+                continue
+            state = self._state_manager.get_state(symbol)
+            candles_4h = state.candle_buffers.get("4h", [])
+            if candles_4h:
+                trend_result = self._trend_filter.evaluate(
+                    candles_4h, setup_type=SetupType.COMPRESSION_BREAKOUT
+                )
+                self._state_manager.set_trend_status(symbol, trend_result.status)
+                trends_evaluated += 1
+
+        logger.info(
+            "Initial trend evaluation complete: %d coins evaluated",
+            trends_evaluated,
+        )
 
     # ─── Telegram Alert Delivery ─────────────────────────────────────────────
 
